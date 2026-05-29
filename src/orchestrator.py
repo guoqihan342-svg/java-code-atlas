@@ -110,30 +110,41 @@ class JavaAnalyzer:
         return data
 
     def _build_jar(self) -> None:
-        """Build analyzer JAR with Maven when it is missing."""
+        """Build analyzer classes with javac when they are missing."""
 
-        if self.jar_path.exists():
+        classes_dir = self.jar_path.parent / "classes"
+        main_class = classes_dir / "io" / "github" / "jstruct" / "AnalyzerCli.class"
+        if main_class.exists():
             return
-        pom = Path("java-analyzer/pom.xml")
-        if not pom.exists():
-            raise AnalyzerError("缺少 java-analyzer/pom.xml，无法构建 Java 分析器")
 
-        mvn = str(Path(self.maven_home) / "bin" / "mvn") if self.maven_home else "mvn"
-        maven_args = str(self.config.get("java", {}).get("maven_args") or "").split()
-        cmd = [mvn, "-f", str(pom), "package", "-Dmaven.test.skip=true", *maven_args]
+        # Compile with javac (Maven/Wagon hangs on some proxy configs)
+        java_src = Path("java-analyzer/src/main/java")
+        if not java_src.exists():
+            raise AnalyzerError("缺少 java-analyzer/src/main/java，无法构建")
+        classes_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build classpath from Maven repo
+        repo = Path.home() / ".m2" / "repository"
+        cp_jars = list(repo.rglob("*.jar")) if repo.exists() else []
+        cp_sep = ";" if os.name == "nt" else ":"
+        classpath = cp_sep.join(str(p) for p in cp_jars)
+
+        java_files = list(java_src.rglob("*.java"))
+        if not java_files:
+            raise AnalyzerError("没有找到 Java 源文件")
+
+        # Use file list for Windows long-command-line compatibility
+        file_list = classes_dir.parent / "sources.txt"
+        file_list.write_text("\n".join(str(f) for f in java_files))
+        cmd = ["javac", "-cp", classpath, "-d", str(classes_dir), f"@{file_list}"]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900, check=False)
-        except FileNotFoundError as exc:
-            raise AnalyzerError("Maven 不可用，请配置 java.maven_home 或将 mvn 加入 PATH") from exc
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
+        except FileNotFoundError:
+            raise AnalyzerError("javac 不可用，请安装 JDK 17+")
         if result.returncode != 0:
-            raise AnalyzerError(f"构建 Java 分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
-        if not self.jar_path.exists():
-            candidates = sorted(Path("java-analyzer/target").glob("*.jar"))
-            shaded = [p for p in candidates if "original-" not in p.name]
-            if shaded:
-                self.jar_path = shaded[0]
-            else:
-                raise AnalyzerError(f"构建完成但未找到 JAR: {self.jar_path}")
+            raise AnalyzerError(f"Java 编译失败:\n{result.stderr.strip() or result.stdout.strip()}")
+        if not main_class.exists():
+            raise AnalyzerError(f"编译完成但未找到 AnalyzerCli.class")
 
     def _detect_jdk(self) -> str:
         configured = self._detect_jdk_from_pom()
