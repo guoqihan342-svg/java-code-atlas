@@ -64,7 +64,14 @@ class JavaAnalyzer:
         if java_home:
             java = str(Path(java_home) / "bin" / "java")
 
-        cmd = [java, "-jar", str(self.jar_path), subcommand]
+        # Build classpath: compiled classes + all dependency jars
+        classpath = [str(self.jar_path.parent.parent / "classes")]
+        repo = Path.home() / ".m2" / "repository"
+        if repo.exists():
+            classpath.extend(str(p) for p in repo.rglob("*.jar"))
+        cp_sep = ";" if os.name == "nt" else ":"
+        cmd = [java, "-cp", cp_sep.join(classpath),
+               "io.github.javacodeatlas.AnalyzerCli", subcommand]
 
         mvn_home = self.maven_home or os.environ.get("M2_HOME", "")
         if mvn_home:
