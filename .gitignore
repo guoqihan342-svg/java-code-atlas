@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Output
+output/
+*.html.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Java build artifacts
+*.class
+*.jar
+target/
