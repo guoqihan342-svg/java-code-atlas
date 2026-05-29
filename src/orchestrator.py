@@ -92,12 +92,24 @@ class JavaAnalyzer:
         return cmd
 
     def _run(self, cmd: list[str], output_path: Path) -> dict[str, Any]:
+        java_cfg = self.config.get("java", {})
+        timeout_sec = java_cfg.get("analyze_timeout_seconds", 600)
+        timeout = None if timeout_sec == 0 else int(timeout_sec)
+
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
         except FileNotFoundError as exc:
             raise AnalyzerError(f"命令不存在: {cmd[0]}") from exc
         except subprocess.TimeoutExpired as exc:
-            raise AnalyzerError("Java 分析器执行超时") from exc
+            if output_path.exists():
+                try:
+                    with output_path.open("r", encoding="utf-8") as handle:
+                        data = json.load(handle)
+                    data["_warning"] = "分析超时，仅返回部分结果"
+                    return data
+                except (json.JSONDecodeError, OSError):
+                    raise AnalyzerError("分析超时且输出文件不完整") from exc
+            raise AnalyzerError("分析超时且未生成任何输出") from exc
 
         if result.returncode != 0:
             raise AnalyzerError(f"Java分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
@@ -120,11 +132,15 @@ class JavaAnalyzer:
 
         mvn = str(Path(self.maven_home) / "bin" / "mvn") if self.maven_home else "mvn"
         maven_args = str(self.config.get("java", {}).get("maven_args") or "").split()
+        build_timeout_sec = self.config.get("java", {}).get("build_timeout_seconds", 900)
+        build_timeout = None if build_timeout_sec == 0 else int(build_timeout_sec)
         cmd = [mvn, "-f", str(pom), "package", "-Dmaven.test.skip=true", *maven_args]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=900, check=False)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=build_timeout, check=False)
         except FileNotFoundError as exc:
             raise AnalyzerError("Maven 不可用，请配置 java.maven_home 或将 mvn 加入 PATH") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AnalyzerError("Maven 构建超时，请增大 java.build_timeout_seconds 或检查网络连接") from exc
         if result.returncode != 0:
             raise AnalyzerError(f"构建 Java 分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
         if not self.jar_path.exists():

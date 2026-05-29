@@ -26,7 +26,13 @@ class ConfigLoader:
         "version": 1,
         "project": {"name": "java-code-atlas"},
         "sources": {"config_file": "config/sources.yaml"},
-        "java": {"jdk_version": "", "maven_home": "", "maven_args": ""},
+        "java": {
+            "jdk_version": "",
+            "maven_home": "",
+            "maven_args": "",
+            "analyze_timeout_seconds": 600,
+            "build_timeout_seconds": 900,
+        },
         "llm": {"config_file": "config/model.yaml", "enabled": True},
         "output": {
             "dir": ".atlas/output",
@@ -152,6 +158,13 @@ class ConfigLoader:
         output = config["output"]
         if not output.get("dir"):
             raise ConfigError("output.dir 不能为空")
+
+        java = config.get("java", {})
+        for field in ("analyze_timeout_seconds", "build_timeout_seconds"):
+            value = java.get(field)
+            if value is not None:
+                if not isinstance(value, int) or value < 0:
+                    raise ConfigError(f"java.{field} 必须是非负整数，当前值: {value}")
 
         llm = config.get("llm", {})
         if llm.get("enabled", True) and llm.get("endpoint") and not llm.get("model"):

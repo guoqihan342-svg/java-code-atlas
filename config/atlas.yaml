@@ -13,6 +13,8 @@ java:
   jdk_version: ""                     # "8"|"11"|"17"|"21"|""=自动检测
   maven_home: ""                      # Maven路径，""=从PATH找
   maven_args: ""                      # 额外Maven参数
+  analyze_timeout_seconds: 600        # Java分析超时(秒)，0=不限制
+  build_timeout_seconds: 900          # Maven构建超时(秒)，0=不限制
 
 llm:
   config_file: "config/model.yaml"    # 模型配置
