@@ -66,7 +66,7 @@ class JavaAnalyzer:
             java = str(Path(java_home) / "bin" / "java")
 
         # Build classpath: compiled classes + all dependency jars
-        classpath = [str(self.jar_path.parent.parent / "classes")]
+        classpath = [str(self.jar_path.parent / "classes")]
         repo = Path.home() / ".m2" / "repository"
         if repo.exists():
             classpath.extend(str(p) for p in repo.rglob("*.jar"))
@@ -78,18 +78,17 @@ class JavaAnalyzer:
         if mvn_home:
             cmd.extend(["--maven-home", mvn_home])
 
-        sources = self.config["sources"]
-        if sources.get("type") == "multi-project":
-            for project in sources.get("projects", []):
-                cmd.extend(["--root", str(project["path"])])
-        else:
-            cmd.extend(["--root", str(sources["root"])])
-            for module in sources.get("modules", []) or []:
-                cmd.extend(["--module", str(module)])
+        if subcommand == "analyze":
+            sources = self.config["sources"]
+            if sources.get("type") == "multi-project":
+                for project in sources.get("projects", []):
+                    cmd.extend(["--root", str(project["path"])])
+            else:
+                cmd.extend(["--root", str(sources["root"])])
+                for module in sources.get("modules", []) or []:
+                    cmd.extend(["--module", str(module)])
 
-        for pattern in sources.get("exclude", []) or []:
-            cmd.extend(["--exclude", str(pattern)])
-
+        # NOTE: --exclude not yet supported by Java CLI; skip for now
         return cmd
 
     def _run(self, cmd: list[str], output_path: Path) -> dict[str, Any]:

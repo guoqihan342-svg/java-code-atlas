@@ -1,0 +1,23 @@
+# LLM 模型配置 v1
+version: 1
+
+# 后端类型：openai_compatible | deepseek | openai
+backend: "deepseek"
+
+model: "deepseek-chat"
+temperature: 0.0
+max_tokens: 4096
+max_concurrency: 2
+batch_size: 50
+retry: 3
+
+# 端点 & 认证
+endpoint: "https://api.deepseek.com/v1/chat/completions"
+api_key: "${DEEPSEEK_API_KEY}"        # 支持 ${VAR} 环境变量引用
+headers: {}                            # 额外 HTTP 头
+
+# 切换到其他 API 兼容服务示例：
+# backend: "openai_compatible"
+# endpoint: "https://api.openai.com/v1/chat/completions"
+# api_key: "${OPENAI_API_KEY}"
+# model: "gpt-4o-mini"

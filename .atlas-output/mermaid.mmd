@@ -1,0 +1,430 @@
+%% mall
+
+flowchart LR
+
+
+  mall_admin -->|10| mall_common
+
+  mall_admin -->|2| mall_demo
+
+  mall_admin -->|681| mall_mbg
+
+  mall_admin -->|10| mall_security
+
+  mall_demo -->|19| mall_mbg
+
+  mall_portal -->|14| mall_admin
+
+  mall_portal -->|18| mall_common
+
+  mall_portal -->|545| mall_mbg
+
+  mall_portal -->|3| mall_security
+
+  mall_security -->|1| mall_common
+
+
+
+classDiagram
+
+
+  Asserts --> ApiException : INVOKES
+
+  GlobalExceptionHandler --> ApiException : INVOKES
+
+  ApiException --> IErrorCode : INJECTS
+
+  ApiException --> IErrorCode : INVOKES
+
+  RedisServiceImpl --> RedisService : IMPLEMENTS
+
+  BaseRedisConfig --> RedisService : CONFIGURES
+
+  BaseRedisConfig --> RedisServiceImpl : INVOKES
+
+  WebLogAspect --> WebLogAspect : ADVISED_BY
+
+  WebLogAspect --> WebLog : INVOKES
+
+  ResultCode --> IErrorCode : IMPLEMENTS
+
+  CommonResult --> IErrorCode : INVOKES
+
+  RedisCacheAspect --> RedisCacheAspect : ADVISED_BY
+
+  RedisConfig --> BaseRedisConfig : EXTENDS
+
+  CommonSecurityConfig --> IgnoreUrlsConfig : CONFIGURES
+
+  CommonSecurityConfig --> JwtTokenUtil : CONFIGURES
+
+  CommonSecurityConfig --> RestfulAccessDeniedHandler : CONFIGURES
+
+  CommonSecurityConfig --> RestAuthenticationEntryPoint : CONFIGURES
+
+  CommonSecurityConfig --> JwtAuthenticationTokenFilter : CONFIGURES
+
+  CommonSecurityConfig --> DynamicSecurityMetadataSource : CONFIGURES
+
+  CommonSecurityConfig --> DynamicAuthorizationManager : CONFIGURES
+
+  CommonSecurityConfig --> IgnoreUrlsConfig : INVOKES
+
+  CommonSecurityConfig --> JwtTokenUtil : INVOKES
+
+  CommonSecurityConfig --> RestfulAccessDeniedHandler : INVOKES
+
+  CommonSecurityConfig --> RestAuthenticationEntryPoint : INVOKES
+
+  CommonSecurityConfig --> JwtAuthenticationTokenFilter : INVOKES
+
+  CommonSecurityConfig --> DynamicSecurityMetadataSource : INVOKES
+
+  CommonSecurityConfig --> DynamicAuthorizationManager : INVOKES
+
+  SecurityConfig --> IgnoreUrlsConfig : INJECTS
+
+  SecurityConfig --> RestfulAccessDeniedHandler : INJECTS
+
+  SecurityConfig --> RestAuthenticationEntryPoint : INJECTS
+
+  SecurityConfig --> JwtAuthenticationTokenFilter : INJECTS
+
+  SecurityConfig --> DynamicAuthorizationManager : INJECTS
+
+  SecurityConfig --> IgnoreUrlsConfig : INVOKES
+
+  DynamicSecurityMetadataSource --> DynamicSecurityService : INJECTS
+
+  DynamicSecurityMetadataSource --> DynamicSecurityService : INVOKES
+
+  JwtAuthenticationTokenFilter --> JwtTokenUtil : INJECTS
+
+  JwtAuthenticationTokenFilter --> JwtTokenUtil : INVOKES
+
+  DynamicAuthorizationManager --> DynamicSecurityMetadataSource : INJECTS
+
+  DynamicAuthorizationManager --> IgnoreUrlsConfig : INJECTS
+
+  DynamicAuthorizationManager --> IgnoreUrlsConfig : INVOKES
+
+  DynamicAuthorizationManager --> DynamicSecurityMetadataSource : INVOKES
+
+  FlagValidatorClass --> FlagValidator : INVOKES
+
+  AdminUserDetails --> UmsAdmin : INJECTS
+
+  AdminUserDetails --> UmsAdmin : INVOKES
+
+  DemoServiceImpl --> DemoService : IMPLEMENTS
+
+  DemoServiceImpl --> PmsBrandMapper : INJECTS
+
+  DemoServiceImpl --> PmsBrandExample : INVOKES
+
+  DemoServiceImpl --> PmsBrand : INVOKES
+
+  DemoServiceImpl --> PmsBrandMapper : INVOKES
+
+  SecurityConfig --> UmsAdminMapper : INJECTS
+
+  SecurityConfig --> UmsAdminExample : INVOKES
+
+  SecurityConfig --> AdminUserDetails : INVOKES
+
+  SecurityConfig --> UmsAdminMapper : INVOKES
+
+  DemoController --> DemoService : INJECTS
+
+  DemoController --> DemoService : INVOKES
+
+  FlagValidatorClass --> FlagValidator : INVOKES
+
+  AdminUserDetails --> UmsAdmin : INJECTS
+
+  AdminUserDetails --> UmsAdmin : INVOKES
+
+  SmsHomeBrandService --> SmsHomeBrandService : TX_BOUNDARY
+
+  PmsProductAttributeService --> PmsProductAttributeService : TX_BOUNDARY
+
+  UmsRoleService --> UmsRoleService : TX_BOUNDARY
+
+  SmsHomeNewProductService --> SmsHomeNewProductService : TX_BOUNDARY
+
+  PmsProductCategoryService --> PmsProductCategoryService : TX_BOUNDARY
+
+  OmsOrderService --> OmsOrderService : TX_BOUNDARY
+
+  SmsHomeRecommendSubjectService --> SmsHomeRecommendSubjectService : TX_BOUNDARY
+
+  SmsCouponService --> SmsCouponService : TX_BOUNDARY
+
+  PmsBrandService --> PmsBrandService : TX_BOUNDARY
+
+  SmsHomeRecommendProductService --> SmsHomeRecommendProductService : TX_BOUNDARY
+
+  UmsMenuServiceImpl --> UmsMenuService : IMPLEMENTS
+
+  UmsMenuServiceImpl --> UmsMenuMapper : INJECTS
+
+  UmsMenuServiceImpl --> UmsMenuExample : INVOKES
+
+  UmsMenuServiceImpl --> UmsMenu : INVOKES
+
+  UmsMenuServiceImpl --> UmsMenuNode : INVOKES
+
+  UmsMenuServiceImpl --> UmsMenuMapper : INVOKES
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelationService : IMPLEMENTS
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelationMapper : INJECTS
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelationDao : INJECTS
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelationExample : INVOKES
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelationMapper : INVOKES
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelation : INVOKES
+
+  SmsFlashPromotionProductRelationServiceImpl --> SmsFlashPromotionProductRelationDao : INVOKES
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApplyService : IMPLEMENTS
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApplyDao : INJECTS
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApplyMapper : INJECTS
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApplyExample : INVOKES
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApply : INVOKES
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApplyDao : INVOKES
+
+  OmsOrderReturnApplyServiceImpl --> OmsOrderReturnApplyMapper : INVOKES
+
+  OmsOrderReturnApplyServiceImpl --> OmsUpdateStatusParam : INVOKES
+
+  OmsOrderReturnReasonServiceImpl --> OmsOrderReturnReasonService : IMPLEMENTS
+
+  OmsOrderReturnReasonServiceImpl --> OmsOrderReturnReasonMapper : INJECTS
+
+  OmsOrderReturnReasonServiceImpl --> OmsOrderReturnReasonExample : INVOKES
+
+  OmsOrderReturnReasonServiceImpl --> OmsOrderReturnReason : INVOKES
+
+  OmsOrderReturnReasonServiceImpl --> OmsOrderReturnReasonMapper : INVOKES
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategoryService : IMPLEMENTS
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategoryMapper : INJECTS
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategoryDao : INJECTS
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategory : INVOKES
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategoryExample : INVOKES
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategoryMapper : INVOKES
+
+  PmsProductAttributeCategoryServiceImpl --> PmsProductAttributeCategoryDao : INVOKES
+
+  SmsHomeRecommendProductServiceImpl --> SmsHomeRecommendProductService : IMPLEMENTS
+
+  SmsHomeRecommendProductServiceImpl --> SmsHomeRecommendProductMapper : INJECTS
+
+  SmsHomeRecommendProductServiceImpl --> SmsHomeRecommendProduct : INVOKES
+
+  SmsHomeRecommendProductServiceImpl --> SmsHomeRecommendProductExample : INVOKES
+
+  SmsHomeRecommendProductServiceImpl --> SmsHomeRecommendProductMapper : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrderService : IMPLEMENTS
+
+  OmsOrderServiceImpl --> OmsOrderMapper : INJECTS
+
+  OmsOrderServiceImpl --> OmsOrderDao : INJECTS
+
+  OmsOrderServiceImpl --> OmsOrderOperateHistoryDao : INJECTS
+
+  OmsOrderServiceImpl --> OmsOrderOperateHistoryMapper : INJECTS
+
+  OmsOrderServiceImpl --> OmsOrderOperateHistory : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrder : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrderExample : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrderDao : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrderOperateHistoryDao : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrderMapper : INVOKES
+
+  OmsOrderServiceImpl --> OmsReceiverInfoParam : INVOKES
+
+  OmsOrderServiceImpl --> OmsOrderOperateHistoryMapper : INVOKES
+
+  OmsOrderServiceImpl --> OmsMoneyInfoParam : INVOKES
+
+  SmsHomeAdvertiseServiceImpl --> SmsHomeAdvertiseService : IMPLEMENTS
+
+  SmsHomeAdvertiseServiceImpl --> SmsHomeAdvertiseMapper : INJECTS
+
+  SmsHomeAdvertiseServiceImpl --> SmsHomeAdvertiseExample : INVOKES
+
+  SmsHomeAdvertiseServiceImpl --> SmsHomeAdvertise : INVOKES
+
+  SmsHomeAdvertiseServiceImpl --> SmsHomeAdvertiseMapper : INVOKES
+
+  CmsSubjectServiceImpl --> CmsSubjectService : IMPLEMENTS
+
+  CmsSubjectServiceImpl --> CmsSubjectMapper : INJECTS
+
+  CmsSubjectServiceImpl --> CmsSubjectExample : INVOKES
+
+  CmsSubjectServiceImpl --> CmsSubjectMapper : INVOKES
+
+  CmsPrefrenceAreaServiceImpl --> CmsPrefrenceAreaService : IMPLEMENTS
+
+  CmsPrefrenceAreaServiceImpl --> CmsPrefrenceAreaMapper : INJECTS
+
+  CmsPrefrenceAreaServiceImpl --> CmsPrefrenceAreaExample : INVOKES
+
+  CmsPrefrenceAreaServiceImpl --> CmsPrefrenceAreaMapper : INVOKES
+
+  PmsSkuStockServiceImpl --> PmsSkuStockService : IMPLEMENTS
+
+  PmsSkuStockServiceImpl --> PmsSkuStockMapper : INJECTS
+
+  PmsSkuStockServiceImpl --> PmsSkuStockDao : INJECTS
+
+  PmsSkuStockServiceImpl --> PmsSkuStockExample : INVOKES
+
+  PmsSkuStockServiceImpl --> PmsSkuStockMapper : INVOKES
+
+  PmsSkuStockServiceImpl --> PmsSkuStockDao : INVOKES
+
+  PmsBrandServiceImpl --> PmsBrandService : IMPLEMENTS
+
+  PmsBrandServiceImpl --> PmsBrandMapper : INJECTS
+
+  PmsBrandServiceImpl --> PmsProductMapper : INJECTS
+
+  PmsBrandServiceImpl --> PmsBrandExample : INVOKES
+
+  PmsBrandServiceImpl --> PmsBrand : INVOKES
+
+  PmsBrandServiceImpl --> PmsProduct : INVOKES
+
+  PmsBrandServiceImpl --> PmsProductExample : INVOKES
+
+  PmsBrandServiceImpl --> PmsBrandMapper : INVOKES
+
+  PmsBrandServiceImpl --> PmsProductMapper : INVOKES
+
+  OssServiceImpl --> OssService : IMPLEMENTS
+
+  OssServiceImpl --> OssPolicyResult : INVOKES
+
+  OssServiceImpl --> OssCallbackParam : INVOKES
+
+  OssServiceImpl --> OssCallbackResult : INVOKES
+
+  SmsHomeNewProductServiceImpl --> SmsHomeNewProductService : IMPLEMENTS
+
+  SmsHomeNewProductServiceImpl --> SmsHomeNewProductMapper : INJECTS
+
+  SmsHomeNewProductServiceImpl --> SmsHomeNewProduct : INVOKES
+
+  SmsHomeNewProductServiceImpl --> SmsHomeNewProductExample : INVOKES
+
+  SmsHomeNewProductServiceImpl --> SmsHomeNewProductMapper : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleService : IMPLEMENTS
+
+  UmsRoleServiceImpl --> UmsRoleMapper : INJECTS
+
+  UmsRoleServiceImpl --> UmsRoleMenuRelationMapper : INJECTS
+
+  UmsRoleServiceImpl --> UmsRoleResourceRelationMapper : INJECTS
+
+  UmsRoleServiceImpl --> UmsRoleDao : INJECTS
+
+  UmsRoleServiceImpl --> UmsAdminCacheService : INJECTS
+
+  UmsRoleServiceImpl --> UmsRoleExample : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleMenuRelationExample : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleMenuRelation : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleResourceRelationExample : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleResourceRelation : INVOKES
+
+  UmsRoleServiceImpl --> UmsRole : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleMapper : INVOKES
+
+  UmsRoleServiceImpl --> UmsAdminCacheService : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleDao : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleMenuRelationMapper : INVOKES
+
+  UmsRoleServiceImpl --> UmsRoleResourceRelationMapper : INVOKES
+
+  UmsAdminCacheServiceImpl --> UmsAdminCacheService : IMPLEMENTS
+
+  UmsAdminCacheServiceImpl --> UmsAdminService : INJECTS
+
+  UmsAdminCacheServiceImpl --> RedisService : INJECTS
+
+  UmsAdminCacheServiceImpl --> UmsAdminRoleRelationMapper : INJECTS
+
+  UmsAdminCacheServiceImpl --> UmsAdminRoleRelationDao : INJECTS
+
+  UmsAdminCacheServiceImpl --> UmsAdminRoleRelationExample : INVOKES
+
+  UmsAdminCacheServiceImpl --> UmsAdminService : INVOKES
+
+  UmsAdminCacheServiceImpl --> UmsAdmin : INVOKES
+
+  UmsAdminCacheServiceImpl --> RedisService : INVOKES
+
+  UmsAdminCacheServiceImpl --> UmsAdminRoleRelationMapper : INVOKES
+
+  UmsAdminCacheServiceImpl --> UmsAdminRoleRelationDao : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdminService : IMPLEMENTS
+
+  UmsAdminServiceImpl --> JwtTokenUtil : INJECTS
+
+  UmsAdminServiceImpl --> UmsAdminMapper : INJECTS
+
+  UmsAdminServiceImpl --> UmsAdminRoleRelationMapper : INJECTS
+
+  UmsAdminServiceImpl --> UmsAdminRoleRelationDao : INJECTS
+
+  UmsAdminServiceImpl --> UmsAdminLoginLogMapper : INJECTS
+
+  UmsAdminServiceImpl --> UmsAdminExample : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdmin : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdminLoginLog : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdminRoleRelationExample : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdminRoleRelation : INVOKES
+
+  UmsAdminServiceImpl --> AdminUserDetails : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdminMapper : INVOKES
+
+  UmsAdminServiceImpl --> JwtTokenUtil : INVOKES
+
+  UmsAdminServiceImpl --> UmsAdminLoginLogMapper : INVOKES
+
