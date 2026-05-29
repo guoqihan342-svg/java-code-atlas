@@ -1,97 +1,236 @@
-# Java Code Atlas 技术实施方案
+# Java Code Atlas v0.2 — 实施方案
 
-> 目标：按 `README.md` 与 `DESIGN.md` 的五层模型落地一个可运行的 Java 结构图谱工具。L1-L3 使用确定性静态分析与图计算，L4 使用 DeepSeek 做结构模式推断，L5 输出 Markdown、Mermaid、JSON 与单文件 HTML。
+> 基于 DESIGN.md v0.2 · 修复 9 个已知 bug · 新增 config/ 统一配置 · 新增 atlas serve + Watch
 
-## 总体架构
+---
 
-Java Code Atlas 由一个 Python 编排 CLI 和一个 Java 分析器 CLI 组成。Java 端负责 JavaParser AST 解析、实体/关系提取、JGraphT 度量计算；Python 端负责多仓编排、DeepSeek 批量推理、模板渲染和 Hermes Skill 封装。
+## 项目状态
 
-```text
-atlas.py
-  ├─ 读取单仓或多仓配置
-  ├─ 调用 java-code-atlas-analyzer.jar 生成 atlas-raw.json
-  ├─ 调用 java-code-atlas-metrics.jar 或同一 JAR 的 metrics 子命令生成 atlas-metrics.json
-  ├─ 调用 DeepSeek 生成 atlas-patterns.json
-  └─ 渲染 report.md / graph.mmd / graph.html
-
-java-code-atlas-analyzer.jar
-  ├─ analyze：JavaParser AST -> entities + relationships
-  └─ metrics：JGraphT -> degrees + SCC + Martin A/I + hotspot + boundary score
+```
+Phase 0 · 设计完成   ████████████  100%  ← 现在在这里
+Phase 1 · 骨架       ░░░░░░░░░░░░    0%
+Phase 2 · 度量       ░░░░░░░░░░░░    0%
+Phase 3 · 模式识别   ░░░░░░░░░░░░    0%
+Phase 4 · 可视化     ░░░░░░░░░░░░    0%
+Phase 5 · Agent化    ░░░░░░░░░░░░    0%
 ```
 
-## Phase 1 骨架（3 天）：JavaParser CLI
+---
 
-### 1. Maven 项目搭建
+## Phase 0 · 配置系统（第 1 天，优先实现）
 
-Java 分析器独立放在 `java-analyzer/`，Python CLI 放在仓库根目录。Phase 1 只需要 `analyze` 子命令能扫描一个 Maven/Gradle Java 仓并输出 JSON。
+> **为什么先做配置**：所有后续 Phase 依赖 config/ 目录。先建配置骨架，后填充解析器。
 
-推荐坐标：
+### 0.1 配置文件模板
 
-```xml
-<groupId>io.github.javacodeatlas</groupId>
-<artifactId>java-code-atlas-analyzer</artifactId>
-<version>0.1.0</version>
+**`config/atlas.yaml.example`**：
+
+```yaml
+# Java Code Atlas 主配置 v1
+version: 1
+
+project:
+  name: "my-project"
+
+sources:
+  config_file: "config/sources.yaml"
+
+java:
+  jdk_version: ""
+  maven_home: ""
+  maven_args: ""
+
+llm:
+  config_file: "config/model.yaml"
+  enabled: true
+
+output:
+  dir: ".atlas/output"
+  formats: ["html", "md", "mmd", "json"]
+  human_first: true
+
+serve:
+  host: "127.0.0.1"
+  port: 8765
+  watch: true
+  watch_dirs: []
+  open_browser: true
+
+cache:
+  dir: ".atlas/cache"
+  ttl_hours: 24
+
+logging:
+  level: "info"
+  file: ".atlas/atlas.log"
 ```
 
-`java-analyzer/pom.xml`：
+**`config/sources.yaml.example`**：
+
+```yaml
+version: 1
+type: maven-multi-module
+root: "/path/to/spring-project"
+modules: []
+exclude:
+  - "**/target/**"
+  - "**/node_modules/**"
+  - "**/.git/**"
+  - "**/test/**"
+```
+
+**`config/model.yaml.example`**：
+
+```yaml
+version: 1
+backend: "deepseek"
+model: "deepseek-chat"
+temperature: 0.0
+max_tokens: 4096
+max_concurrency: 2
+batch_size: 50
+retry: 3
+endpoint: "https://api.deepseek.com/v1/chat/completions"
+api_key: "${DEEPSEEK_API_KEY}"
+headers: {}
+```
+
+### 0.2 `atlas.py config` 命令
+
+```bash
+# 交互式生成配置
+python atlas.py config init
+
+# 验证已有配置
+python atlas.py config validate
+
+# 显示当前配置
+python atlas.py config show
+```
+
+### 0.3 配置加载逻辑 (Python)
+
+```python
+# src/config.py
+import os
+import yaml
+from pathlib import Path
+from typing import Any
+
+class ConfigLoader:
+    CONFIG_DIR = Path("config")
+
+    @classmethod
+    def load(cls) -> dict[str, Any]:
+        atlas = cls._load_yaml("atlas.yaml")
+        sources = cls._load_yaml(atlas["sources"].get("config_file", "sources.yaml"))
+        model = cls._load_yaml(atlas["llm"].get("config_file", "model.yaml"))
+        atlas["sources"] = sources
+        atlas["llm"] = model
+        cls._resolve_env_vars(atlas)
+        cls._validate(atlas)
+        return atlas
+
+    @classmethod
+    def _load_yaml(cls, filename: str) -> dict:
+        path = cls.CONFIG_DIR / filename
+        if not path.exists():
+            raise FileNotFoundError(f"配置文件不存在: {path}")
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
+    @classmethod
+    def _resolve_env_vars(cls, config: dict) -> None:
+        """递归替换 ${VAR_NAME} 为环境变量值"""
+        def resolve(value):
+            if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+                var = value[2:-1]
+                return os.environ.get(var, value)
+            if isinstance(value, dict):
+                return {k: resolve(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [resolve(v) for v in value]
+            return value
+        for key in config:
+            config[key] = resolve(config[key])
+
+    @classmethod
+    def _validate(cls, config: dict) -> None:
+        required = ["project", "sources", "java", "output", "serve"]
+        for key in required:
+            if key not in config:
+                raise ValueError(f"atlas.yaml 缺少必填项: {key}")
+        if "root" not in config["sources"]:
+            raise ValueError("sources.yaml 缺少 root")
+```
+
+---
+
+## Phase 1 · Java 分析器（3 天）
+
+### 1.1 Maven 项目搭建 (修复 bug#5: 多模块)
+
+**`java-analyzer/pom.xml`**：
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>io.github.javacodeatlas</groupId>
   <artifactId>java-code-atlas-analyzer</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <packaging>jar</packaging>
 
   <properties>
-    <maven.compiler.source>17</maven.compiler.source>
-    <maven.compiler.target>17</maven.compiler.target>
+    <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <javaparser.version>3.26.4</javaparser.version>
     <jackson.version>2.17.2</jackson.version>
     <picocli.version>4.7.6</picocli.version>
+    <jgrapht.version>1.5.2</jgrapht.version>
   </properties>
 
   <dependencies>
+    <!-- AST 解析 -->
+    <dependency>
+      <groupId>com.github.javaparser</groupId>
+      <artifactId>javaparser-core</artifactId>
+      <version>${javaparser.version}</version>
+    </dependency>
     <dependency>
       <groupId>com.github.javaparser</groupId>
       <artifactId>javaparser-symbol-solver-core</artifactId>
       <version>${javaparser.version}</version>
     </dependency>
+
+    <!-- JSON -->
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
       <version>${jackson.version}</version>
     </dependency>
+
+    <!-- CLI -->
     <dependency>
       <groupId>info.picocli</groupId>
       <artifactId>picocli</artifactId>
       <version>${picocli.version}</version>
     </dependency>
+
+    <!-- 图计算 (Phase 2) -->
     <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>5.10.3</version>
-      <scope>test</scope>
+      <groupId>org.jgrapht</groupId>
+      <artifactId>jgrapht-core</artifactId>
+      <version>${jgrapht.version}</version>
     </dependency>
   </dependencies>
 
   <build>
     <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.13.0</version>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.3.1</version>
-      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>
@@ -101,10 +240,10 @@ Java 分析器独立放在 `java-analyzer/`，Python CLI 放在仓库根目录�
             <phase>package</phase>
             <goals><goal>shade</goal></goals>
             <configuration>
-              <createDependencyReducedPom>false</createDependencyReducedPom>
               <transformers>
-                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>io.github.javacodeatlas.cli.AtlasCli</mainClass>
+                <transformer
+                  implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>io.github.javacodeatlas.AnalyzerCli</mainClass>
                 </transformer>
               </transformers>
             </configuration>
@@ -116,2472 +255,1369 @@ Java 分析器独立放在 `java-analyzer/`，Python CLI 放在仓库根目录�
 </project>
 ```
 
-### 2. JavaParser 遍历 AST 提取实体指纹
-
-实体粒度以顶层类和嵌套类型为主。每个 `ClassOrInterfaceDeclaration`、`EnumDeclaration`、`AnnotationDeclaration`、`RecordDeclaration` 转为一个 `EntityFingerprint`。FQN 通过包名、外部类名和当前类型名拼接；如果 symbol solver 可解析，则优先使用 `resolve().getQualifiedName()`。
-
-扫描流程：
-
-1. 用 `Files.walk(input)` 收集 `src/main/java/**/*.java`，默认排除 `target/`、`build/`、`.gradle/`、`src/test/`。
-2. 每个文件用 `StaticJavaParser.parse(path)` 解析为 `CompilationUnit`。
-3. 读取 `PackageDeclaration`、imports、模块路径。
-4. 遍历所有类型声明，生成实体指纹。
-5. 在同一 AST 内提取 9 种关系。
-6. 把所有关系按 `(source, target, type)` 聚合，累计 `count` 和 `weight`。
-
-### 3. 数据类代码骨架
-
-`EntityFingerprint.java`：
+### 1.2 MavenModuleResolver (修复 bug#5)
 
 ```java
-package io.github.javacodeatlas.model;
-
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
-public final class EntityFingerprint {
-    public String id;
-    public String fqn;
-    public String simpleName;
-    public String packageName;
-    public String module;
-    public String sourcePath;
-    public int startLine;
-    public int endLine;
-    public String kind;
-    public List<String> modifiers = new ArrayList<>();
-    public List<String> annotations = new ArrayList<>();
-    public List<String> roles = new ArrayList<>();
-    public List<String> extendsTypes = new ArrayList<>();
-    public List<String> implementsTypes = new ArrayList<>();
-    public List<String> typeParameters = new ArrayList<>();
-    public Metrics fingerprint = new Metrics();
-
-    public static final class Metrics {
-        public int methods;
-        public int publicMethods;
-        public int privateMethods;
-        public int protectedMethods;
-        public int getters;
-        public int setters;
-        public int constructors;
-        public int overrides;
-        public int injectedDeps;
-        public boolean constructorInjection;
-        public boolean fieldInjection;
-        public int loc;
-        public double avgMethodLength;
-        public int maxMethodLength;
-        public int cyclomaticComplexityMax;
-        public int nestedDepthMax;
-        public int typeParams;
-        public int wildcardUsage;
-        public int transactionalMethods;
-        public int beanMethods;
-        public int staticMethods;
-        public int finalFields;
-        public Map<String, Integer> annotationCounts = new LinkedHashMap<>();
-    }
-}
-```
-
-`Relationship.java`：
-
-```java
-package io.github.javacodeatlas.model;
-
-import java.util.ArrayList;
-import java.util.List;
-
-public final class Relationship {
-    public String id;
-    public String source;
-    public String target;
-    public RelationshipType type;
-    public double weight;
-    public int count;
-    public List<String> evidence = new ArrayList<>();
-
-    public Relationship() {
-    }
-
-    public Relationship(String source, String target, RelationshipType type, double weight, String evidence) {
-        this.source = source;
-        this.target = target;
-        this.type = type;
-        this.weight = weight;
-        this.count = 1;
-        this.evidence.add(evidence);
-        this.id = source + "|" + type + "|" + target;
-    }
-}
-```
-
-`RelationshipType.java`：
-
-```java
-package io.github.javacodeatlas.model;
-
-public enum RelationshipType {
-    EXTENDS(1.0),
-    INVOKES(1.0),
-    IMPLEMENTS(0.8),
-    INJECTS(0.6),
-    LISTENS(0.3),
-    CONFIGURES(0.3),
-    ADVISED_BY(0.1),
-    RPC_CALLS(0.5),
-    TX_BOUNDARY(0.2);
-
-    public final double coefficient;
-
-    RelationshipType(double coefficient) {
-        this.coefficient = coefficient;
-    }
-}
-```
-
-`AtlasDocument.java`：
-
-```java
-package io.github.javacodeatlas.model;
-
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-
-public final class AtlasDocument {
-    public String schemaVersion = "1.0";
-    public Instant generatedAt = Instant.now();
-    public ScanOptions scanOptions;
-    public RepositoryInfo repository;
-    public List<EntityFingerprint> entities = new ArrayList<>();
-    public List<Relationship> relationships = new ArrayList<>();
-    public List<ModuleFingerprint> modules = new ArrayList<>();
-
-    public static final class ScanOptions {
-        public String inputPath;
-        public boolean includeTests;
-        public List<String> includeGlobs = new ArrayList<>();
-        public List<String> excludeGlobs = new ArrayList<>();
-        public String outputFormat;
-    }
-
-    public static final class RepositoryInfo {
-        public String id;
-        public String alias;
-        public String rootPath;
-        public String buildTool;
-        public String groupId;
-        public String artifactId;
-    }
-}
-```
-
-`StaticAnalyzer.java` 主类：
-
-```java
-package io.github.javacodeatlas.analyze;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.github.javaparser.ParseProblemException;
-import com.github.javaparser.StaticJavaParser;
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.body.BodyDeclaration;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.EnumDeclaration;
-import com.github.javaparser.ast.body.TypeDeclaration;
-import io.github.javacodeatlas.model.AtlasDocument;
-import io.github.javacodeatlas.model.EntityFingerprint;
-import io.github.javacodeatlas.model.Relationship;
+package io.github.javacodeatlas.util;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Stream;
+import java.nio.file.*;
+import java.util.*;
+import java.util.stream.Collectors;
 
-public final class StaticAnalyzer {
-    private final AnalyzerOptions options;
-    private final RelationshipExtractor relationshipExtractor = new RelationshipExtractor();
-    private final RoleClassifier roleClassifier = new RoleClassifier();
-    private final ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
+/**
+ * Maven 多模块自动发现。
+ * 读 root/pom.xml → 找 <modules> → 过滤 packaging=pom → 返回源码路径。
+ */
+public class MavenModuleResolver {
 
-    public StaticAnalyzer(AnalyzerOptions options) {
-        this.options = options;
+    public record ModuleInfo(
+        String artifactId,
+        String packaging,      // jar | war | pom
+        Path moduleRoot,       // 模块根目录
+        Path sourceRoot        // src/main/java
+    ) {}
+
+    public static List<ModuleInfo> resolve(Path projectRoot) throws IOException {
+        Path rootPom = projectRoot.resolve("pom.xml");
+        if (!Files.exists(rootPom)) {
+            // 不是 Maven 项目，直接扫 src/main/java
+            Path src = projectRoot.resolve("src/main/java");
+            if (Files.exists(src)) {
+                return List.of(new ModuleInfo(
+                    projectRoot.getFileName().toString(),
+                    "jar", projectRoot, src));
+            }
+            return List.of();
+        }
+
+        List<ModuleInfo> modules = new ArrayList<>();
+        // 读取父 pom 的 <modules>
+        List<String> moduleNames = parseModules(rootPom);
+
+        if (moduleNames.isEmpty()) {
+            // 单模块项目
+            Path src = projectRoot.resolve("src/main/java");
+            if (Files.exists(src)) {
+                modules.add(new ModuleInfo(
+                    projectRoot.getFileName().toString(),
+                    "jar", projectRoot, src));
+            }
+        } else {
+            for (String name : moduleNames) {
+                Path moduleDir = projectRoot.resolve(name);
+                Path modulePom = moduleDir.resolve("pom.xml");
+                String packaging = "jar";
+                if (Files.exists(modulePom)) {
+                    packaging = parsePackaging(modulePom);
+                }
+                if ("pom".equals(packaging)) continue;  // 跳过聚合模块
+
+                Path src = moduleDir.resolve("src/main/java");
+                if (Files.exists(src)) {
+                    modules.add(new ModuleInfo(name, packaging, moduleDir, src));
+                }
+            }
+        }
+        return modules;
     }
 
-    public AtlasDocument analyze() throws IOException {
-        AtlasDocument document = new AtlasDocument();
-        document.scanOptions = options.toScanOptions();
-        document.repository = RepositoryScanner.readRepositoryInfo(options.inputPath(), options.repositoryAlias());
+    // 简单 XML 解析（不引入额外依赖）
+    private static List<String> parseModules(Path pom) throws IOException {
+        String content = Files.readString(pom);
+        List<String> modules = new ArrayList<>();
+        int start = content.indexOf("<modules>");
+        if (start < 0) return modules;
+        int end = content.indexOf("</modules>", start);
+        if (end < 0) return modules;
+        String block = content.substring(start, end);
+        // 找所有 <module>xxx</module>
+        for (int i = 0; i < block.length(); ) {
+            int ms = block.indexOf("<module>", i);
+            if (ms < 0) break;
+            int me = block.indexOf("</module>", ms);
+            if (me < 0) break;
+            modules.add(block.substring(ms + 8, me).trim());
+            i = me + 9;
+        }
+        return modules;
+    }
 
-        Map<String, Relationship> relationships = new LinkedHashMap<>();
-        for (Path javaFile : collectJavaFiles(options.inputPath())) {
-            CompilationUnit cu;
+    private static String parsePackaging(Path pom) throws IOException {
+        String content = Files.readString(pom);
+        int start = content.indexOf("<packaging>");
+        if (start < 0) return "jar";  // 默认 jar
+        int end = content.indexOf("</packaging>", start);
+        return content.substring(start + 12, end).trim();
+    }
+}
+```
+
+### 1.3 JDK 版本检测 (修复 bug#6)
+
+```java
+package io.github.javacodeatlas.util;
+
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.regex.*;
+
+/**
+ * JDK 版本自动检测。
+ * 优先级：pom.xml <maven.compiler.release> > <maven.compiler.source>
+ *        > build.gradle sourceCompatibility > .java-version > 系统默认
+ */
+public class JdkVersionDetector {
+
+    public static String detect(Path projectRoot) {
+        // 1. pom.xml
+        Path pom = projectRoot.resolve("pom.xml");
+        if (Files.exists(pom)) {
+            String v = fromPom(pom);
+            if (v != null) return v;
+        }
+
+        // 2. build.gradle / build.gradle.kts
+        for (String name : new String[]{"build.gradle", "build.gradle.kts"}) {
+            Path gradle = projectRoot.resolve(name);
+            if (Files.exists(gradle)) {
+                String v = fromGradle(gradle);
+                if (v != null) return v;
+            }
+        }
+
+        // 3. .java-version (jenv / sdkman)
+        Path jv = projectRoot.resolve(".java-version");
+        if (Files.exists(jv)) {
             try {
-                cu = StaticJavaParser.parse(javaFile);
-            } catch (ParseProblemException ex) {
-                System.err.println("Parse failed: " + javaFile + " :: " + ex.getMessage());
-                continue;
-            }
-
-            List<EntityFingerprint> fileEntities = extractEntities(cu, javaFile, document.repository.artifactId);
-            document.entities.addAll(fileEntities);
-            for (Relationship relationship : relationshipExtractor.extract(cu, fileEntities)) {
-                relationships.merge(relationship.id, relationship, StaticAnalyzer::mergeRelationship);
-            }
+                return Files.readString(jv).trim();
+            } catch (IOException ignored) {}
         }
 
-        document.entities.sort(Comparator.comparing(e -> e.fqn));
-        document.relationships.addAll(relationships.values());
-        document.modules = ModuleScanner.aggregate(document.repository, document.entities, document.relationships);
-        return document;
+        // 4. 系统默认
+        return System.getProperty("java.version");
     }
 
-    public void writeJson(Path output) throws IOException {
-        AtlasDocument document = analyze();
-        Files.createDirectories(output.getParent());
-        mapper.writeValue(output.toFile(), document);
+    private static String fromPom(Path pom) {
+        try {
+            String content = Files.readString(pom);
+            Pattern p = Pattern.compile(
+                "<maven\\.compiler\\.(release|source)>\\s*(\\d+)\\s*</");
+            Matcher m = p.matcher(content);
+            if (m.find()) return m.group(2);
+        } catch (IOException ignored) {}
+        return null;
     }
 
-    private List<Path> collectJavaFiles(Path root) throws IOException {
-        try (Stream<Path> stream = Files.walk(root)) {
-            return stream
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> options.includeTests() || !path.toString().contains("/src/test/"))
-                    .filter(path -> !path.toString().contains("/target/"))
-                    .filter(path -> !path.toString().contains("/build/"))
-                    .filter(path -> !path.toString().contains("/.gradle/"))
-                    .filter(options::matchesFilters)
-                    .toList();
-        }
-    }
-
-    private List<EntityFingerprint> extractEntities(CompilationUnit cu, Path sourcePath, String module) {
-        String packageName = cu.getPackageDeclaration().map(pd -> pd.getNameAsString()).orElse("");
-        List<EntityFingerprint> entities = new ArrayList<>();
-        for (TypeDeclaration<?> type : cu.findAll(TypeDeclaration.class)) {
-            EntityFingerprint entity = new EntityFingerprint();
-            entity.simpleName = type.getNameAsString();
-            entity.packageName = packageName;
-            entity.fqn = buildFqn(packageName, type);
-            entity.id = entity.fqn;
-            entity.module = module;
-            entity.sourcePath = options.inputPath().relativize(sourcePath).toString();
-            entity.startLine = type.getRange().map(r -> r.begin.line).orElse(0);
-            entity.endLine = type.getRange().map(r -> r.end.line).orElse(0);
-            entity.kind = kindOf(type);
-            entity.modifiers = type.getModifiers().stream().map(m -> m.getKeyword().asString()).toList();
-            entity.annotations = type.getAnnotations().stream().map(a -> a.getNameAsString()).toList();
-            entity.roles = roleClassifier.rolesOf(type);
-            entity.fingerprint = FingerprintExtractor.extract(type);
-
-            if (type instanceof ClassOrInterfaceDeclaration declaration) {
-                entity.extendsTypes = declaration.getExtendedTypes().stream().map(Object::toString).toList();
-                entity.implementsTypes = declaration.getImplementedTypes().stream().map(Object::toString).toList();
-                entity.typeParameters = declaration.getTypeParameters().stream().map(Object::toString).toList();
-            }
-            entities.add(entity);
-        }
-        return entities;
-    }
-
-    private static Relationship mergeRelationship(Relationship left, Relationship right) {
-        left.count += right.count;
-        left.weight += right.weight;
-        left.evidence.addAll(right.evidence);
-        return left;
-    }
-
-    private static String buildFqn(String packageName, TypeDeclaration<?> type) {
-        Optional<Node> parentType = type.getParentNode()
-                .filter(parent -> parent instanceof TypeDeclaration<?>);
-        String name = type.getNameAsString();
-        while (parentType.isPresent()) {
-            TypeDeclaration<?> parent = (TypeDeclaration<?>) parentType.get();
-            name = parent.getNameAsString() + "$" + name;
-            parentType = parent.getParentNode().filter(p -> p instanceof TypeDeclaration<?>);
-        }
-        return packageName.isBlank() ? name : packageName + "." + name;
-    }
-
-    private static String kindOf(TypeDeclaration<?> type) {
-        if (type instanceof ClassOrInterfaceDeclaration declaration) {
-            if (declaration.isInterface()) return "interface";
-            if (declaration.isAbstract()) return "abstract_class";
-            return "class";
-        }
-        if (type instanceof EnumDeclaration) return "enum";
-        if (type.isAnnotationDeclaration()) return "annotation";
-        if (type.isRecordDeclaration()) return "record";
-        return "type";
+    private static String fromGradle(Path gradle) {
+        try {
+            String content = Files.readString(gradle);
+            Pattern p = Pattern.compile(
+                "(source|target)Compatibility\\s*=\\s*['\"]?(\\d+\\.?\\d*)['\"]?");
+            Matcher m = p.matcher(content);
+            if (m.find()) return m.group(2);
+        } catch (IOException ignored) {}
+        return null;
     }
 }
 ```
 
-`FingerprintExtractor.java`：
+### 1.4 EntityFingerprint 数据类 (修复 bug#2)
 
 ```java
-package io.github.javacodeatlas.analyze;
+package io.github.javacodeatlas.model;
 
-import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.body.ConstructorDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.Parameter;
-import com.github.javaparser.ast.body.TypeDeclaration;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import java.util.*;
+
+@JsonInclude(JsonInclude.Include.NON_EMPTY)
+public class EntityFingerprint {
+    public String fqn;                    // 全限定名（唯一 ID）
+    public String className;              // 短类名
+    public String module;                 // Maven artifact-id
+    public String modulePath;             // 模块源码根路径
+    public String javaPackage;            // Java package (com.example.order)
+
+    public String kind;                   // class | interface | abstract | enum | annotation | record
+    public List<String> modifiers;
+
+    // 角色（从注解推断，修复 bug#3）
+    public List<String> roles;
+
+    // 继承/实现
+    public List<String> extends_;
+    public List<String> implements_;
+
+    // 方法统计
+    public int methods;
+    public int publicMethods;
+    public int getters;
+    public int setters;
+    public int constructors;
+    public int overrides;
+
+    // 依赖注入
+    public int injectedDeps;
+    public boolean constructorInjection;
+    public boolean fieldInjection;
+
+    // 事务
+    public List<String> transactionalMethods;
+
+    // 复杂度
+    public int loc;
+    public double avgMethodLength;
+    public int maxMethodLength;
+    public int cyclomaticComplexityMax;
+    public int nestedDepthMax;
+
+    // 事件
+    public List<String> eventListenerTypes;
+}
+```
+
+### 1.5 注解角色映射 (修复 bug#3, #9)
+
+```java
+package io.github.javacodeatlas.extract;
+
 import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.stmt.CatchClause;
-import com.github.javaparser.ast.stmt.DoStmt;
-import com.github.javaparser.ast.stmt.ForEachStmt;
-import com.github.javaparser.ast.stmt.ForStmt;
-import com.github.javaparser.ast.stmt.IfStmt;
-import com.github.javaparser.ast.stmt.SwitchEntry;
-import com.github.javaparser.ast.stmt.WhileStmt;
-import com.github.javaparser.ast.type.WildcardType;
-import io.github.javacodeatlas.model.EntityFingerprint;
+import java.util.*;
 
-public final class FingerprintExtractor {
-    private FingerprintExtractor() {
-    }
+/**
+ * 注解 → 角色映射。
+ * 修复：支持组合注解的元注解解包。
+ */
+public class AnnotationRoleMapper {
 
-    public static EntityFingerprint.Metrics extract(TypeDeclaration<?> type) {
-        EntityFingerprint.Metrics metrics = new EntityFingerprint.Metrics();
-        metrics.loc = type.getRange().map(r -> r.end.line - r.begin.line + 1).orElse(0);
+    private static final Map<String, List<String>> DIRECT_MAP = Map.ofEntries(
+        Map.entry("org.springframework.web.bind.annotation.RestController",
+                  List.of("REST_ENTRY")),
+        Map.entry("org.springframework.stereotype.Controller",
+                  List.of("MVC_ENTRY")),
+        Map.entry("org.springframework.stereotype.Service",
+                  List.of("BUSINESS_LOGIC", "SPRING_BEAN")),
+        Map.entry("org.springframework.stereotype.Component",
+                  List.of("BUSINESS_LOGIC", "SPRING_BEAN")),
+        Map.entry("org.springframework.stereotype.Repository",
+                  List.of("DATA_ACCESS", "SPRING_BEAN")),
+        Map.entry("org.springframework.context.annotation.Configuration",
+                  List.of("CONFIG", "SPRING_BEAN")),
+        Map.entry("org.springframework.transaction.annotation.Transactional",
+                  List.of("TRANSACTIONAL")),
+        Map.entry("org.springframework.kafka.annotation.KafkaListener",
+                  List.of("MESSAGE_CONSUMER")),
+        Map.entry("org.springframework.amqp.rabbit.annotation.RabbitListener",
+                  List.of("MESSAGE_CONSUMER")),
+        Map.entry("org.springframework.scheduling.annotation.Scheduled",
+                  List.of("SCHEDULED_TASK")),
+        Map.entry("org.springframework.cloud.openfeign.FeignClient",
+                  List.of("RPC_CLIENT")),
+        Map.entry("org.aspectj.lang.annotation.Aspect",
+                  List.of("ASPECT")),
+        Map.entry("org.springframework.web.bind.annotation.ControllerAdvice",
+                  List.of("GLOBAL_ADVICE")),
+        Map.entry("jakarta.persistence.Entity",
+                  List.of("PERSISTENCE_MODEL")),
+        Map.entry("javax.persistence.Entity",
+                  List.of("PERSISTENCE_MODEL"))
+    );
 
-        for (MethodDeclaration method : type.getMethods()) {
-            metrics.methods++;
-            if (method.isPublic()) metrics.publicMethods++;
-            if (method.isPrivate()) metrics.privateMethods++;
-            if (method.isProtected()) metrics.protectedMethods++;
-            if (method.isStatic()) metrics.staticMethods++;
-            if (isGetter(method)) metrics.getters++;
-            if (isSetter(method)) metrics.setters++;
-            if (hasAnnotation(method, "Override")) metrics.overrides++;
-            if (hasAnnotation(method, "Transactional")) metrics.transactionalMethods++;
-            if (hasAnnotation(method, "Bean")) metrics.beanMethods++;
+    // 组合注解解包：@SpringBootApplication → @Configuration + @ComponentScan
+    private static final Map<String, List<String>> META_UNWRAP = Map.of(
+        "org.springframework.boot.autoconfigure.SpringBootApplication",
+        List.of("CONFIG", "SPRING_BEAN")
+    );
 
-            int methodLoc = method.getRange().map(r -> r.end.line - r.begin.line + 1).orElse(0);
-            metrics.maxMethodLength = Math.max(metrics.maxMethodLength, methodLoc);
-            metrics.cyclomaticComplexityMax = Math.max(metrics.cyclomaticComplexityMax, cyclomatic(method));
-            metrics.nestedDepthMax = Math.max(metrics.nestedDepthMax, nestedDepth(method, 0));
-        }
+    public static List<String> resolve(AnnotationExpr annotation) {
+        String name = annotation.getNameAsString();
+        List<String> roles = new ArrayList<>();
 
-        metrics.constructors = type.findAll(ConstructorDeclaration.class).size();
-        metrics.avgMethodLength = metrics.methods == 0 ? 0.0 :
-                type.getMethods().stream()
-                        .mapToInt(m -> m.getRange().map(r -> r.end.line - r.begin.line + 1).orElse(0))
-                        .average()
-                        .orElse(0.0);
-
-        for (FieldDeclaration field : type.findAll(FieldDeclaration.class)) {
-            if (field.isFinal()) metrics.finalFields += field.getVariables().size();
-            if (hasAnyAnnotation(field, "Autowired", "Resource", "Inject")) {
-                metrics.fieldInjection = true;
-                metrics.injectedDeps += field.getVariables().size();
+        // 直接匹配
+        for (var entry : DIRECT_MAP.entrySet()) {
+            if (name.equals(entry.getKey()) || name.endsWith("." + shortName(entry.getKey()))) {
+                roles.addAll(entry.getValue());
             }
         }
 
-        for (ConstructorDeclaration constructor : type.findAll(ConstructorDeclaration.class)) {
-            for (Parameter parameter : constructor.getParameters()) {
-                if (!parameter.getType().isPrimitiveType()) {
-                    metrics.constructorInjection = true;
-                    metrics.injectedDeps++;
-                }
+        // 组合注解解包
+        for (var entry : META_UNWRAP.entrySet()) {
+            if (name.equals(entry.getKey()) || name.endsWith("." + shortName(entry.getKey()))) {
+                roles.addAll(entry.getValue());
             }
         }
 
-        metrics.typeParams = type.isClassOrInterfaceDeclaration()
-                ? type.asClassOrInterfaceDeclaration().getTypeParameters().size()
-                : 0;
-        metrics.wildcardUsage = type.findAll(WildcardType.class).size();
-        for (AnnotationExpr annotation : type.findAll(AnnotationExpr.class)) {
-            String name = annotation.getNameAsString();
-            metrics.annotationCounts.merge(name, 1, Integer::sum);
-        }
-        return metrics;
+        return roles;
     }
 
-    private static boolean isGetter(MethodDeclaration method) {
-        return method.getParameters().isEmpty()
-                && !method.getType().isVoidType()
-                && method.isPublic()
-                && method.getNameAsString().matches("^(get|is)[A-Z].*");
-    }
-
-    private static boolean isSetter(MethodDeclaration method) {
-        return method.getParameters().size() == 1
-                && method.getType().isVoidType()
-                && method.isPublic()
-                && method.getNameAsString().matches("^set[A-Z].*");
-    }
-
-    static boolean hasAnnotation(Node node, String name) {
-        return node.findAll(AnnotationExpr.class).stream().anyMatch(a -> a.getNameAsString().equals(name));
-    }
-
-    static boolean hasAnyAnnotation(Node node, String... names) {
-        for (String name : names) {
-            if (hasAnnotation(node, name)) return true;
-        }
-        return false;
-    }
-
-    private static int cyclomatic(Node node) {
-        int score = 1;
-        score += node.findAll(IfStmt.class).size();
-        score += node.findAll(ForStmt.class).size();
-        score += node.findAll(ForEachStmt.class).size();
-        score += node.findAll(WhileStmt.class).size();
-        score += node.findAll(DoStmt.class).size();
-        score += node.findAll(CatchClause.class).size();
-        score += node.findAll(SwitchEntry.class).stream().mapToInt(e -> Math.max(1, e.getLabels().size())).sum();
-        score += node.toString().split("&&|\\|\\|", -1).length - 1;
-        return score;
-    }
-
-    private static int nestedDepth(Node node, int depth) {
-        int max = depth;
-        for (Node child : node.getChildNodes()) {
-            boolean branch = child instanceof IfStmt
-                    || child instanceof ForStmt
-                    || child instanceof ForEachStmt
-                    || child instanceof WhileStmt
-                    || child instanceof DoStmt;
-            max = Math.max(max, nestedDepth(child, branch ? depth + 1 : depth));
-        }
-        return max;
+    private static String shortName(String fqn) {
+        int lastDot = fqn.lastIndexOf('.');
+        return lastDot >= 0 ? fqn.substring(lastDot + 1) : fqn;
     }
 }
 ```
 
-### 4. 9 种关系类型提取逻辑
-
-`RelationshipExtractor.java` 负责在单个 `CompilationUnit` 中提取关系。关系目标能用 symbol solver 解析时使用 FQN，解析失败时使用源码中的类型名，并在 Phase 2 的索引里做二次归一化。
+### 1.6 AtlasDocument — JSON schema 版本化 (修复 bug#1)
 
 ```java
-package io.github.javacodeatlas.analyze;
+package io.github.javacodeatlas.model;
 
-import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
-import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.MethodDeclaration;
-import com.github.javaparser.ast.body.Parameter;
-import com.github.javaparser.ast.body.TypeDeclaration;
-import com.github.javaparser.ast.expr.AnnotationExpr;
-import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.expr.ObjectCreationExpr;
-import com.github.javaparser.ast.expr.VariableDeclarationExpr;
-import com.github.javaparser.ast.type.ClassOrInterfaceType;
-import io.github.javacodeatlas.model.EntityFingerprint;
-import io.github.javacodeatlas.model.Relationship;
-import io.github.javacodeatlas.model.RelationshipType;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import java.util.*;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+@JsonPropertyOrder({"atlas", "modules", "entities", "relationships"})
+public class AtlasDocument {
+    public static final String CURRENT_VERSION = "1.0.0";
 
-public final class RelationshipExtractor {
-    public List<Relationship> extract(CompilationUnit cu, List<EntityFingerprint> entities) {
-        List<Relationship> relationships = new ArrayList<>();
-        Map<String, String> localClassToFqn = new HashMap<>();
-        for (EntityFingerprint entity : entities) {
-            localClassToFqn.put(entity.simpleName, entity.fqn);
-        }
+    public AtlasMeta atlas;
+    public List<ModuleFingerprint> modules;
+    public List<EntityFingerprint> entities;
+    public List<Relationship> relationships;
 
-        for (TypeDeclaration<?> type : cu.findAll(TypeDeclaration.class)) {
-            String source = localClassToFqn.get(type.getNameAsString());
-            if (source == null) continue;
-            relationships.addAll(extractExtends(source, type));
-            relationships.addAll(extractImplements(source, type));
-            relationships.addAll(extractInjects(source, type));
-            relationships.addAll(extractListens(source, type));
-            relationships.addAll(extractConfigures(source, type));
-            relationships.addAll(extractAdvisedBy(source, type));
-            relationships.addAll(extractRpcCalls(source, type));
-            relationships.addAll(extractTxBoundary(source, type));
-            relationships.addAll(extractInvokes(source, type, localClassToFqn));
-        }
-        return relationships;
-    }
-
-    private List<Relationship> extractExtends(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        if (type instanceof ClassOrInterfaceDeclaration declaration) {
-            for (ClassOrInterfaceType parent : declaration.getExtendedTypes()) {
-                result.add(edge(source, parent.getNameAsString(), RelationshipType.EXTENDS, "extends " + parent));
-            }
-        }
-        return result;
-    }
-
-    private List<Relationship> extractImplements(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        if (type instanceof ClassOrInterfaceDeclaration declaration) {
-            for (ClassOrInterfaceType implemented : declaration.getImplementedTypes()) {
-                result.add(edge(source, implemented.getNameAsString(), RelationshipType.IMPLEMENTS, "implements " + implemented));
-            }
-        }
-        return result;
-    }
-
-    private List<Relationship> extractInjects(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        for (FieldDeclaration field : type.findAll(FieldDeclaration.class)) {
-            if (hasAnyAnnotation(field.getAnnotations(), "Autowired", "Resource", "Inject")) {
-                field.getVariables().forEach(v -> result.add(edge(
-                        source,
-                        v.getType().asString(),
-                        RelationshipType.INJECTS,
-                        "field injection " + v.getNameAsString()
-                )));
-            }
-        }
-        type.findAll(com.github.javaparser.ast.body.ConstructorDeclaration.class).forEach(constructor -> {
-            boolean annotated = hasAnyAnnotation(constructor.getAnnotations(), "Autowired", "Inject");
-            boolean singleConstructor = type.findAll(com.github.javaparser.ast.body.ConstructorDeclaration.class).size() == 1;
-            if (annotated || singleConstructor) {
-                for (Parameter parameter : constructor.getParameters()) {
-                    if (!parameter.getType().isPrimitiveType()) {
-                        result.add(edge(source, parameter.getType().asString(), RelationshipType.INJECTS,
-                                "constructor injection " + parameter.getNameAsString()));
-                    }
-                }
-            }
-        });
-        return result;
-    }
-
-    private List<Relationship> extractListens(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        for (MethodDeclaration method : type.findAll(MethodDeclaration.class)) {
-            for (AnnotationExpr annotation : method.getAnnotations()) {
-                String name = annotation.getNameAsString();
-                if (name.equals("EventListener") || name.equals("KafkaListener") || name.equals("RabbitListener")) {
-                    String target = method.getParameters().isEmpty()
-                            ? "event:unknown"
-                            : method.getParameter(0).getType().asString();
-                    result.add(edge(source, target, RelationshipType.LISTENS, "listener @" + name));
-                }
-            }
-        }
-        return result;
-    }
-
-    private List<Relationship> extractConfigures(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        for (MethodDeclaration method : type.findAll(MethodDeclaration.class)) {
-            if (hasAnyAnnotation(method.getAnnotations(), "Bean")) {
-                result.add(edge(source, method.getType().asString(), RelationshipType.CONFIGURES,
-                        "@Bean returns " + method.getType().asString()));
-            }
-        }
-        return result;
-    }
-
-    private List<Relationship> extractAdvisedBy(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        boolean aspect = hasAnyAnnotation(type.getAnnotations(), "Aspect");
-        if (!aspect) return result;
-        for (MethodDeclaration method : type.findAll(MethodDeclaration.class)) {
-            for (AnnotationExpr annotation : method.getAnnotations()) {
-                String name = annotation.getNameAsString();
-                if (name.equals("Before") || name.equals("After") || name.equals("Around")
-                        || name.equals("AfterReturning") || name.equals("AfterThrowing")) {
-                    String pointcut = annotation.toString();
-                    String target = pointcut.contains("execution(") ? "pointcut:" + normalizePointcut(pointcut) : "pointcut:unknown";
-                    result.add(edge(source, target, RelationshipType.ADVISED_BY, "advice @" + name));
-                }
-            }
-        }
-        return result;
-    }
-
-    private List<Relationship> extractRpcCalls(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        for (AnnotationExpr annotation : type.getAnnotations()) {
-            if (annotation.getNameAsString().equals("FeignClient")) {
-                result.add(edge(source, "rpc:" + annotation.toString(), RelationshipType.RPC_CALLS, "@FeignClient"));
-            }
-        }
-        for (FieldDeclaration field : type.findAll(FieldDeclaration.class)) {
-            field.getVariables().forEach(v -> {
-                String fieldType = v.getType().asString();
-                if (fieldType.endsWith("Client") || fieldType.endsWith("Api")) {
-                    result.add(edge(source, fieldType, RelationshipType.RPC_CALLS, "client field " + v.getNameAsString()));
-                }
-            });
-        }
-        return result;
-    }
-
-    private List<Relationship> extractTxBoundary(String source, TypeDeclaration<?> type) {
-        List<Relationship> result = new ArrayList<>();
-        if (hasAnyAnnotation(type.getAnnotations(), "Transactional")) {
-            result.add(edge(source, source, RelationshipType.TX_BOUNDARY, "class @Transactional"));
-        }
-        for (MethodDeclaration method : type.findAll(MethodDeclaration.class)) {
-            if (hasAnyAnnotation(method.getAnnotations(), "Transactional")) {
-                result.add(edge(source, source, RelationshipType.TX_BOUNDARY, "method @Transactional"));
-            }
-        }
-        return result;
-    }
-
-    private List<Relationship> extractInvokes(String source, TypeDeclaration<?> type, Map<String, String> localClassToFqn) {
-        List<Relationship> result = new ArrayList<>();
-        for (ObjectCreationExpr creation : type.findAll(ObjectCreationExpr.class)) {
-            result.add(edge(source, creation.getType().getNameAsString(), RelationshipType.INVOKES, "new " + creation.getType()));
-        }
-        for (VariableDeclarationExpr variable : type.findAll(VariableDeclarationExpr.class)) {
-            variable.getVariables().forEach(v -> {
-                String target = v.getType().asString();
-                if (localClassToFqn.containsKey(target)) {
-                    result.add(edge(source, localClassToFqn.get(target), RelationshipType.INVOKES, "local variable " + v.getNameAsString()));
-                }
-            });
-        }
-        for (MethodCallExpr call : type.findAll(MethodCallExpr.class)) {
-            Optional<String> target = call.getScope().flatMap(scope -> {
-                if (scope instanceof NameExpr nameExpr) return Optional.of(nameExpr.getNameAsString());
-                return Optional.empty();
-            });
-            target.ifPresent(t -> {
-                if (localClassToFqn.containsKey(t)) {
-                    result.add(edge(source, localClassToFqn.get(t), RelationshipType.INVOKES, "call " + call.getNameAsString()));
-                }
-            });
-        }
-        return result;
-    }
-
-    private Relationship edge(String source, String target, RelationshipType type, String evidence) {
-        return new Relationship(source, target, type, type.coefficient, evidence);
-    }
-
-    private static boolean hasAnyAnnotation(List<AnnotationExpr> annotations, String... names) {
-        for (AnnotationExpr annotation : annotations) {
-            for (String name : names) {
-                if (annotation.getNameAsString().equals(name)) return true;
-            }
-        }
-        return false;
-    }
-
-    private static String normalizePointcut(String pointcut) {
-        return pointcut.replaceAll("\\s+", " ").replace("\"", "");
+    public static class AtlasMeta {
+        public String version;           // 数据契约版本号
+        public String generatedAt;
+        public String project;
+        public String jdkVersion;
+        public int totalModules;
+        public int totalEntities;
+        public int totalRelationships;
     }
 }
 ```
 
-9 种关系的查询要点：
-
-| 关系 | JavaParser 查询 | 目标 |
-|---|---|---|
-| `EXTENDS` | `ClassOrInterfaceDeclaration#getExtendedTypes()` | 父类或父接口 |
-| `IMPLEMENTS` | `ClassOrInterfaceDeclaration#getImplementedTypes()` | 接口 |
-| `INJECTS` | `FieldDeclaration`/`ConstructorDeclaration` + `@Autowired/@Resource/@Inject` | 被注入类型 |
-| `LISTENS` | `MethodDeclaration` + `@EventListener/@KafkaListener/@RabbitListener` | 事件参数或消息主题 |
-| `CONFIGURES` | `MethodDeclaration` + `@Bean` | Bean 返回类型 |
-| `ADVISED_BY` | `@Aspect` 类中的 `@Before/@After/@Around` | pointcut 表达式 |
-| `RPC_CALLS` | `@FeignClient` 或 `*Client/*Api` 注入字段 | RPC 客户端接口或服务名 |
-| `TX_BOUNDARY` | 类/方法上的 `@Transactional` | 自环关系，表示事务边界 |
-| `INVOKES` | `ObjectCreationExpr`、`MethodCallExpr`、`VariableDeclarationExpr` | 显式调用或构造的类型 |
-
-### 5. CLI 入口参数设计
-
-`AtlasCli.java` 使用 picocli。Phase 1 提供 `analyze` 子命令；Phase 2 增加 `metrics`。
-
-```java
-package io.github.javacodeatlas.cli;
-
-import io.github.javacodeatlas.analyze.AnalyzerOptions;
-import io.github.javacodeatlas.analyze.StaticAnalyzer;
-import picocli.CommandLine;
-
-import java.nio.file.Path;
-import java.util.List;
-import java.util.concurrent.Callable;
-
-@CommandLine.Command(
-        name = "atlas-analyzer",
-        mixinStandardHelpOptions = true,
-        version = "0.1.0",
-        subcommands = {AtlasCli.AnalyzeCommand.class}
-)
-public final class AtlasCli implements Runnable {
-    public static void main(String[] args) {
-        int exitCode = new CommandLine(new AtlasCli()).execute(args);
-        System.exit(exitCode);
-    }
-
-    @Override
-    public void run() {
-        CommandLine.usage(this, System.out);
-    }
-
-    @CommandLine.Command(name = "analyze", description = "Parse Java source and emit structure JSON.")
-    static final class AnalyzeCommand implements Callable<Integer> {
-        @CommandLine.Option(names = {"-i", "--input"}, required = true, description = "Repository root path.")
-        Path input;
-
-        @CommandLine.Option(names = {"-o", "--output"}, required = true, description = "Output JSON file.")
-        Path output;
-
-        @CommandLine.Option(names = "--repo-alias", description = "Human-readable repository alias.")
-        String repoAlias;
-
-        @CommandLine.Option(names = "--include-tests", description = "Include src/test/java.")
-        boolean includeTests;
-
-        @CommandLine.Option(names = "--include", split = ",", description = "Comma-separated glob filters.")
-        List<String> includeGlobs = List.of("**/*.java");
-
-        @CommandLine.Option(names = "--exclude", split = ",", description = "Comma-separated glob filters.")
-        List<String> excludeGlobs = List.of("**/target/**", "**/build/**", "**/.gradle/**");
-
-        @CommandLine.Option(names = "--format", description = "Output format: json or jsonl.")
-        String format = "json";
-
-        @Override
-        public Integer call() throws Exception {
-            AnalyzerOptions options = new AnalyzerOptions(input, repoAlias, includeTests, includeGlobs, excludeGlobs, format);
-            new StaticAnalyzer(options).writeJson(output);
-            return 0;
-        }
-    }
-}
-```
-
-命令示例：
-
-```bash
-java -jar java-analyzer/target/java-code-atlas-analyzer-0.1.0.jar analyze \
-  --input /workspace/order-service \
-  --output /workspace/out/atlas-raw.json \
-  --repo-alias order-service \
-  --include '**/src/main/java/**/*.java' \
-  --exclude '**/target/**,**/generated/**' \
-  --format json
-```
-
-### 6. JSON 输出 Schema
-
-Phase 1 输出完整结构：
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://javacodeatlas.github.io/schema/atlas-raw-1.0.json",
-  "type": "object",
-  "required": ["schemaVersion", "generatedAt", "repository", "entities", "relationships", "modules"],
-  "properties": {
-    "schemaVersion": { "type": "string", "const": "1.0" },
-    "generatedAt": { "type": "string", "format": "date-time" },
-    "scanOptions": {
-      "type": "object",
-      "required": ["inputPath", "includeTests", "outputFormat"],
-      "properties": {
-        "inputPath": { "type": "string" },
-        "includeTests": { "type": "boolean" },
-        "includeGlobs": { "type": "array", "items": { "type": "string" } },
-        "excludeGlobs": { "type": "array", "items": { "type": "string" } },
-        "outputFormat": { "type": "string", "enum": ["json", "jsonl"] }
-      }
-    },
-    "repository": {
-      "type": "object",
-      "required": ["id", "alias", "rootPath", "buildTool"],
-      "properties": {
-        "id": { "type": "string" },
-        "alias": { "type": "string" },
-        "rootPath": { "type": "string" },
-        "buildTool": { "type": "string", "enum": ["maven", "gradle", "unknown"] },
-        "groupId": { "type": "string" },
-        "artifactId": { "type": "string" }
-      }
-    },
-    "entities": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "fqn", "simpleName", "packageName", "module", "kind", "fingerprint"],
-        "properties": {
-          "id": { "type": "string" },
-          "fqn": { "type": "string" },
-          "simpleName": { "type": "string" },
-          "packageName": { "type": "string" },
-          "module": { "type": "string" },
-          "sourcePath": { "type": "string" },
-          "startLine": { "type": "integer", "minimum": 0 },
-          "endLine": { "type": "integer", "minimum": 0 },
-          "kind": { "type": "string", "enum": ["class", "abstract_class", "interface", "enum", "annotation", "record", "type"] },
-          "modifiers": { "type": "array", "items": { "type": "string" } },
-          "annotations": { "type": "array", "items": { "type": "string" } },
-          "roles": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": ["REST_ENTRY", "BUSINESS_LOGIC", "DATA_ACCESS", "CONFIG", "TRANSACTIONAL", "MESSAGE_CONSUMER", "SCHEDULED_TASK", "RPC_CLIENT", "ASPECT", "GLOBAL_ADVICE", "PERSISTENCE_MODEL", "DTO", "UTIL"]
-            }
-          },
-          "extendsTypes": { "type": "array", "items": { "type": "string" } },
-          "implementsTypes": { "type": "array", "items": { "type": "string" } },
-          "typeParameters": { "type": "array", "items": { "type": "string" } },
-          "fingerprint": {
-            "type": "object",
-            "required": ["methods", "publicMethods", "constructors", "loc", "cyclomaticComplexityMax", "nestedDepthMax"],
-            "properties": {
-              "methods": { "type": "integer", "minimum": 0 },
-              "publicMethods": { "type": "integer", "minimum": 0 },
-              "privateMethods": { "type": "integer", "minimum": 0 },
-              "protectedMethods": { "type": "integer", "minimum": 0 },
-              "getters": { "type": "integer", "minimum": 0 },
-              "setters": { "type": "integer", "minimum": 0 },
-              "constructors": { "type": "integer", "minimum": 0 },
-              "overrides": { "type": "integer", "minimum": 0 },
-              "injectedDeps": { "type": "integer", "minimum": 0 },
-              "constructorInjection": { "type": "boolean" },
-              "fieldInjection": { "type": "boolean" },
-              "loc": { "type": "integer", "minimum": 0 },
-              "avgMethodLength": { "type": "number", "minimum": 0 },
-              "maxMethodLength": { "type": "integer", "minimum": 0 },
-              "cyclomaticComplexityMax": { "type": "integer", "minimum": 0 },
-              "nestedDepthMax": { "type": "integer", "minimum": 0 },
-              "typeParams": { "type": "integer", "minimum": 0 },
-              "wildcardUsage": { "type": "integer", "minimum": 0 },
-              "transactionalMethods": { "type": "integer", "minimum": 0 },
-              "beanMethods": { "type": "integer", "minimum": 0 },
-              "staticMethods": { "type": "integer", "minimum": 0 },
-              "finalFields": { "type": "integer", "minimum": 0 },
-              "annotationCounts": { "type": "object", "additionalProperties": { "type": "integer" } }
-            }
-          }
-        }
-      }
-    },
-    "relationships": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "source", "target", "type", "weight", "count"],
-        "properties": {
-          "id": { "type": "string" },
-          "source": { "type": "string" },
-          "target": { "type": "string" },
-          "type": {
-            "type": "string",
-            "enum": ["EXTENDS", "INVOKES", "IMPLEMENTS", "INJECTS", "LISTENS", "CONFIGURES", "ADVISED_BY", "RPC_CALLS", "TX_BOUNDARY"]
-          },
-          "weight": { "type": "number", "minimum": 0 },
-          "count": { "type": "integer", "minimum": 1 },
-          "evidence": { "type": "array", "items": { "type": "string" } }
-        }
-      }
-    },
-    "modules": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["id", "artifactId", "groupId", "fingerprint"],
-        "properties": {
-          "id": { "type": "string" },
-          "artifactId": { "type": "string" },
-          "groupId": { "type": "string" },
-          "path": { "type": "string" },
-          "type": { "type": "string" },
-          "fingerprint": {
-            "type": "object",
-            "properties": {
-              "classes": { "type": "integer", "minimum": 0 },
-              "interfaces": { "type": "integer", "minimum": 0 },
-              "abstractClasses": { "type": "integer", "minimum": 0 },
-              "enums": { "type": "integer", "minimum": 0 },
-              "annotations": { "type": "integer", "minimum": 0 },
-              "records": { "type": "integer", "minimum": 0 },
-              "internalDeps": { "type": "integer", "minimum": 0 },
-              "externalDeps": { "type": "integer", "minimum": 0 },
-              "testClasses": { "type": "integer", "minimum": 0 },
-              "testRatio": { "type": "number", "minimum": 0 },
-              "architectureRoles": { "type": "object", "additionalProperties": { "type": "integer" } }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-### 7. Python 调用 Java JAR
-
-`atlas.py` 编排时不解析 Java 代码，只负责构造命令、捕获 stderr、校验产物。
+### 1.7 Python 调用 Java JAR
 
 ```python
-from __future__ import annotations
-
-import json
+# src/orchestrator.py
 import subprocess
-from pathlib import Path
-
-
-def run_java_analyzer(repo_path: Path, output_dir: Path, analyzer_jar: Path, repo_alias: str) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    raw_json = output_dir / "atlas-raw.json"
-    command = [
-        "java",
-        "-Xmx2g",
-        "-jar",
-        str(analyzer_jar),
-        "analyze",
-        "--input",
-        str(repo_path),
-        "--output",
-        str(raw_json),
-        "--repo-alias",
-        repo_alias,
-        "--include",
-        "**/src/main/java/**/*.java",
-        "--exclude",
-        "**/target/**,**/build/**,**/generated/**",
-        "--format",
-        "json",
-    ]
-    completed = subprocess.run(command, text=True, capture_output=True, check=False)
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "Java analyzer failed\n"
-            f"command: {' '.join(command)}\n"
-            f"stdout:\n{completed.stdout}\n"
-            f"stderr:\n{completed.stderr}"
-        )
-    with raw_json.open("r", encoding="utf-8") as file:
-        json.load(file)
-    return raw_json
-```
-
-## Phase 2 度量（3 天）：图计算模块
-
-### 1. JGraphT 依赖和 Maven 配置
-
-在 Phase 1 的 `pom.xml` 中补充：
-
-```xml
-<properties>
-  <jgrapht.version>1.5.2</jgrapht.version>
-</properties>
-
-<dependencies>
-  <dependency>
-    <groupId>org.jgrapht</groupId>
-    <artifactId>jgrapht-core</artifactId>
-    <version>${jgrapht.version}</version>
-  </dependency>
-  <dependency>
-    <groupId>org.jgrapht</groupId>
-    <artifactId>jgrapht-io</artifactId>
-    <version>${jgrapht.version}</version>
-  </dependency>
-</dependencies>
-```
-
-CLI 增加：
-
-```bash
-java -jar java-code-atlas-analyzer-0.1.0.jar metrics \
-  --input /workspace/out/atlas-raw.json \
-  --output /workspace/out/atlas-metrics.json \
-  --report /workspace/out/report.md \
-  --mermaid /workspace/out/graph.mmd
-```
-
-### 2. 图构建
-
-实体图使用类 FQN 作为顶点，关系作为边。模块图按 `entity.module` 聚合，过滤模块内自环后计算模块间耦合。
-
-```java
-package io.github.javacodeatlas.metrics;
-
-import io.github.javacodeatlas.model.AtlasDocument;
-import io.github.javacodeatlas.model.Relationship;
-import org.jgrapht.Graph;
-import org.jgrapht.graph.DefaultDirectedWeightedGraph;
-import org.jgrapht.graph.DefaultWeightedEdge;
-
-import java.util.HashMap;
-import java.util.Map;
-
-public final class GraphBuilder {
-    public Graph<String, DefaultWeightedEdge> classGraph(AtlasDocument document) {
-        Graph<String, DefaultWeightedEdge> graph = new DefaultDirectedWeightedGraph<>(DefaultWeightedEdge.class);
-        document.entities.forEach(entity -> graph.addVertex(entity.fqn));
-        for (Relationship relationship : document.relationships) {
-            graph.addVertex(relationship.source);
-            graph.addVertex(relationship.target);
-            DefaultWeightedEdge edge = graph.addEdge(relationship.source, relationship.target);
-            if (edge != null) {
-                graph.setEdgeWeight(edge, relationship.weight);
-            } else {
-                DefaultWeightedEdge existing = graph.getEdge(relationship.source, relationship.target);
-                graph.setEdgeWeight(existing, graph.getEdgeWeight(existing) + relationship.weight);
-            }
-        }
-        return graph;
-    }
-
-    public Graph<String, DefaultWeightedEdge> moduleGraph(AtlasDocument document) {
-        Map<String, String> entityToModule = new HashMap<>();
-        document.entities.forEach(entity -> entityToModule.put(entity.fqn, entity.module));
-        Graph<String, DefaultWeightedEdge> graph = new DefaultDirectedWeightedGraph<>(DefaultWeightedEdge.class);
-        document.modules.forEach(module -> graph.addVertex(module.id));
-        for (Relationship relationship : document.relationships) {
-            String sourceModule = entityToModule.get(relationship.source);
-            String targetModule = entityToModule.get(relationship.target);
-            if (sourceModule == null || targetModule == null || sourceModule.equals(targetModule)) {
-                continue;
-            }
-            graph.addVertex(sourceModule);
-            graph.addVertex(targetModule);
-            DefaultWeightedEdge edge = graph.addEdge(sourceModule, targetModule);
-            if (edge != null) {
-                graph.setEdgeWeight(edge, relationship.weight);
-            } else {
-                DefaultWeightedEdge existing = graph.getEdge(sourceModule, targetModule);
-                graph.setEdgeWeight(existing, graph.getEdgeWeight(existing) + relationship.weight);
-            }
-        }
-        return graph;
-    }
-}
-```
-
-### 3. 入度/出度计算
-
-```java
-package io.github.javacodeatlas.metrics;
-
-import org.jgrapht.Graph;
-import org.jgrapht.graph.DefaultWeightedEdge;
-
-public final class DegreeMetrics {
-    public int inDegree;
-    public int outDegree;
-    public double weightedInDegree;
-    public double weightedOutDegree;
-
-    public static DegreeMetrics of(Graph<String, DefaultWeightedEdge> graph, String vertex) {
-        DegreeMetrics metrics = new DegreeMetrics();
-        metrics.inDegree = graph.inDegreeOf(vertex);
-        metrics.outDegree = graph.outDegreeOf(vertex);
-        metrics.weightedInDegree = graph.incomingEdgesOf(vertex).stream().mapToDouble(graph::getEdgeWeight).sum();
-        metrics.weightedOutDegree = graph.outgoingEdgesOf(vertex).stream().mapToDouble(graph::getEdgeWeight).sum();
-        return metrics;
-    }
-}
-```
-
-### 4. Tarjan SCC 环检测
-
-JGraphT 已提供 `TarjanStrongConnectivityInspector`，但项目保留一个可测试的实现，用于输出 DFS 序号、低链接值和环严重度。
-
-```java
-package io.github.javacodeatlas.metrics;
-
-import org.jgrapht.Graph;
-import org.jgrapht.graph.DefaultWeightedEdge;
-
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-public final class TarjanScc {
-    private final Graph<String, DefaultWeightedEdge> graph;
-    private final Map<String, Integer> index = new HashMap<>();
-    private final Map<String, Integer> lowlink = new HashMap<>();
-    private final ArrayDeque<String> stack = new ArrayDeque<>();
-    private final Set<String> onStack = new HashSet<>();
-    private final List<List<String>> components = new ArrayList<>();
-    private int nextIndex = 0;
-
-    public TarjanScc(Graph<String, DefaultWeightedEdge> graph) {
-        this.graph = graph;
-    }
-
-    public List<List<String>> findCycles() {
-        for (String vertex : graph.vertexSet()) {
-            if (!index.containsKey(vertex)) {
-                strongConnect(vertex);
-            }
-        }
-        return components.stream()
-                .filter(component -> component.size() > 1 || hasSelfLoop(component.get(0)))
-                .toList();
-    }
-
-    private void strongConnect(String vertex) {
-        index.put(vertex, nextIndex);
-        lowlink.put(vertex, nextIndex);
-        nextIndex++;
-        stack.push(vertex);
-        onStack.add(vertex);
-
-        for (DefaultWeightedEdge edge : graph.outgoingEdgesOf(vertex)) {
-            String target = graph.getEdgeTarget(edge);
-            if (!index.containsKey(target)) {
-                strongConnect(target);
-                lowlink.put(vertex, Math.min(lowlink.get(vertex), lowlink.get(target)));
-            } else if (onStack.contains(target)) {
-                lowlink.put(vertex, Math.min(lowlink.get(vertex), index.get(target)));
-            }
-        }
-
-        if (lowlink.get(vertex).equals(index.get(vertex))) {
-            List<String> component = new ArrayList<>();
-            String current;
-            do {
-                current = stack.pop();
-                onStack.remove(current);
-                component.add(current);
-            } while (!current.equals(vertex));
-            components.add(component);
-        }
-    }
-
-    private boolean hasSelfLoop(String vertex) {
-        return graph.containsEdge(vertex, vertex);
-    }
-
-    public static String severity(int size) {
-        if (size <= 2) return "minor";
-        if (size <= 5) return "medium";
-        return "severe";
-    }
-}
-```
-
-### 5. Martin A/I 矩阵计算
-
-公式：
-
-```text
-Ca = 依赖当前模块的其他模块数
-Ce = 当前模块依赖的其他模块数
-I  = Ce / (Ca + Ce)，当 Ca + Ce = 0 时 I = 0
-A  = (接口数 + 抽象类数) / 总类型数
-D  = |A + I - 1|
-```
-
-代码：
-
-```java
-package io.github.javacodeatlas.metrics;
-
-import io.github.javacodeatlas.model.EntityFingerprint;
-import org.jgrapht.Graph;
-import org.jgrapht.graph.DefaultWeightedEdge;
-
-import java.util.List;
-
-public final class MartinMetrics {
-    public String module;
-    public int ca;
-    public int ce;
-    public double instability;
-    public double abstractness;
-    public double distance;
-    public String zone;
-
-    public static MartinMetrics calculate(
-            String module,
-            List<EntityFingerprint> moduleEntities,
-            Graph<String, DefaultWeightedEdge> moduleGraph
-    ) {
-        MartinMetrics metrics = new MartinMetrics();
-        metrics.module = module;
-        metrics.ca = moduleGraph.containsVertex(module) ? moduleGraph.inDegreeOf(module) : 0;
-        metrics.ce = moduleGraph.containsVertex(module) ? moduleGraph.outDegreeOf(module) : 0;
-        metrics.instability = metrics.ca + metrics.ce == 0 ? 0.0 : (double) metrics.ce / (metrics.ca + metrics.ce);
-
-        long abstractTypes = moduleEntities.stream()
-                .filter(e -> e.kind.equals("interface") || e.kind.equals("abstract_class"))
-                .count();
-        metrics.abstractness = moduleEntities.isEmpty() ? 0.0 : (double) abstractTypes / moduleEntities.size();
-        metrics.distance = Math.abs(metrics.abstractness + metrics.instability - 1.0);
-        metrics.zone = zone(metrics.abstractness, metrics.instability);
-        return metrics;
-    }
-
-    private static String zone(double a, double i) {
-        if (a < 0.25 && i < 0.25) return "pain_zone";
-        if (a > 0.75 && i > 0.75) return "useless_zone";
-        if (Math.abs(a + i - 1.0) <= 0.2) return "main_sequence";
-        if (i > 0.6) return "volatile_concrete";
-        return "stable_abstract";
-    }
-}
-```
-
-### 6. 热点评分函数
-
-热点评分用于类级排序，分数越高代表修改风险和传播影响越大。
-
-```java
-package io.github.javacodeatlas.metrics;
-
-import io.github.javacodeatlas.model.EntityFingerprint;
-
-public final class HotspotScorer {
-    public static double score(EntityFingerprint entity, DegreeMetrics degree) {
-        return degree.inDegree * 1.0
-                + degree.outDegree * 0.5
-                + entity.fingerprint.cyclomaticComplexityMax * 0.3
-                + entity.fingerprint.loc * 0.01
-                + entity.fingerprint.transactionalMethods * 0.2
-                + entity.implementsTypes.size() * 0.1;
-    }
-
-    public static String level(double score, double p90, double p75) {
-        if (score >= p90) return "critical";
-        if (score >= p75) return "high";
-        if (score >= 10.0) return "medium";
-        return "low";
-    }
-}
-```
-
-### 7. 模块边界质量评分算法
-
-评分由四项组成，满分 100：
-
-```text
-依赖方向正确性 40 分：
-  无反向依赖、无跨层跳过：40
-  每条反向依赖 -8
-  每条 Controller -> Repository 跳层 -5
-
-接口/实现比 25 分：
-  ratio = interfaces / (interfaces + concreteClasses)
-  0.15 <= ratio <= 0.40：25
-  0.05 <= ratio < 0.15 或 0.40 < ratio <= 0.60：15
-  其他：5
-
-循环依赖 20 分：
-  无 SCC 环：20
-  每个模块内环 -3
-  每个跨模块环 -5
-  最低 0
-
-对外暴露 15 分：
-  publicMethodRatio = publicMethods / totalMethods
-  0.20 <= ratio <= 0.55：15
-  0.55 < ratio <= 0.75：9
-  其他：5
-```
-
-```java
-package io.github.javacodeatlas.metrics;
-
-import io.github.javacodeatlas.model.EntityFingerprint;
-
-import java.util.List;
-
-public final class BoundaryQualityScorer {
-    public BoundaryScore score(ModuleContext context) {
-        int direction = Math.max(0, 40 - context.reverseDependencyCount() * 8 - context.layerSkipCount() * 5);
-        int interfaceScore = interfaceScore(context.entities());
-        int cycleScore = Math.max(0, 20 - context.internalCycleCount() * 3 - context.crossModuleCycleCount() * 5);
-        int exposure = exposureScore(context.entities());
-        int total = direction + interfaceScore + cycleScore + exposure;
-        return new BoundaryScore(context.moduleId(), total, direction, interfaceScore, cycleScore, exposure, grade(total));
-    }
-
-    private int interfaceScore(List<EntityFingerprint> entities) {
-        long interfaces = entities.stream().filter(e -> e.kind.equals("interface")).count();
-        long concrete = entities.stream().filter(e -> e.kind.equals("class")).count();
-        double ratio = interfaces + concrete == 0 ? 0.0 : (double) interfaces / (interfaces + concrete);
-        if (ratio >= 0.15 && ratio <= 0.40) return 25;
-        if ((ratio >= 0.05 && ratio < 0.15) || (ratio > 0.40 && ratio <= 0.60)) return 15;
-        return 5;
-    }
-
-    private int exposureScore(List<EntityFingerprint> entities) {
-        int totalMethods = entities.stream().mapToInt(e -> e.fingerprint.methods).sum();
-        int publicMethods = entities.stream().mapToInt(e -> e.fingerprint.publicMethods).sum();
-        double ratio = totalMethods == 0 ? 0.0 : (double) publicMethods / totalMethods;
-        if (ratio >= 0.20 && ratio <= 0.55) return 15;
-        if (ratio > 0.55 && ratio <= 0.75) return 9;
-        return 5;
-    }
-
-    private String grade(int total) {
-        if (total >= 80) return "good";
-        if (total >= 60) return "normal";
-        if (total >= 40) return "weak";
-        return "none";
-    }
-}
-```
-
-### 8. Mermaid 图生成器
-
-```java
-package io.github.javacodeatlas.output;
-
-import io.github.javacodeatlas.model.Relationship;
-import java.util.List;
-
-public final class MermaidGenerator {
-    public String dependencyGraph(List<Relationship> relationships, int maxEdges) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("```mermaid\n");
-        builder.append("graph LR\n");
-        relationships.stream()
-                .sorted((a, b) -> Double.compare(b.weight, a.weight))
-                .limit(maxEdges)
-                .forEach(edge -> builder.append("  ")
-                        .append(nodeId(edge.source))
-                        .append("[\"")
-                        .append(shortName(edge.source))
-                        .append("\"] -->|")
-                        .append(edge.type)
-                        .append(" ")
-                        .append(String.format("%.1f", edge.weight))
-                        .append("| ")
-                        .append(nodeId(edge.target))
-                        .append("[\"")
-                        .append(shortName(edge.target))
-                        .append("\"]\n"));
-        builder.append("```\n");
-        return builder.toString();
-    }
-
-    private String nodeId(String value) {
-        return "n" + Integer.toHexString(value.hashCode()).replace("-", "m");
-    }
-
-    private String shortName(String fqn) {
-        int index = fqn.lastIndexOf('.');
-        return index < 0 ? fqn : fqn.substring(index + 1);
-    }
-}
-```
-
-### 9. Markdown 报告模板
-
-```markdown
-# Java Code Atlas 报告
-
-## 概览
-
-| 指标 | 数值 |
-|---|---:|
-| 仓库 | {{repository.alias}} |
-| 模块数 | {{summary.modules}} |
-| 类/接口/枚举 | {{summary.entities}} |
-| 关系边 | {{summary.relationships}} |
-| SCC 环 | {{summary.cycles}} |
-| Top 10% 热点类 | {{summary.criticalHotspots}} |
-
-## Martin A/I 矩阵
-
-| 模块 | Ca | Ce | I | A | D | 区域 |
-|---|---:|---:|---:|---:|---:|---|
-{{#martinMetrics}}
-| {{module}} | {{ca}} | {{ce}} | {{instability}} | {{abstractness}} | {{distance}} | {{zone}} |
-{{/martinMetrics}}
-
-## 环依赖
-
-{{#cycles}}
-- {{severity}}：{{nodes}}
-{{/cycles}}
-
-## 热点类 Top 20
-
-| 排名 | 类 | 入度 | 出度 | 复杂度 | LOC | 热度 |
-|---:|---|---:|---:|---:|---:|---:|
-{{#hotspots}}
-| {{rank}} | `{{fqn}}` | {{inDegree}} | {{outDegree}} | {{complexity}} | {{loc}} | {{score}} |
-{{/hotspots}}
-
-## 依赖图
-
-{{mermaidDependencyGraph}}
-```
-
-模板渲染用 Python `jinja2` 或 Java `mustache.java` 均可；为了让 Java CLI 能单独运行，Phase 2 优先使用 Java 内置字符串生成。
-
-## Phase 3 模式识别（3 天）：LLM 管线
-
-### 1. DeepSeek API 调用封装
-
-Python 端读取 `atlas-metrics.json`，抽取结构指纹批量发给 DeepSeek。API Key 从 `DEEPSEEK_API_KEY` 读取，默认模型为 `deepseek-chat`。
-
-```python
-from __future__ import annotations
-
 import json
 import os
-import time
-from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from .config import ConfigLoader
 
-import requests
-
-
-@dataclass(frozen=True)
-class DeepSeekConfig:
-    api_key: str
-    model: str = "deepseek-chat"
-    endpoint: str = "https://api.deepseek.com/chat/completions"
-    timeout_seconds: int = 60
-    max_retries: int = 3
-
-
-class DeepSeekClient:
-    def __init__(self, config: DeepSeekConfig) -> None:
+class JavaAnalyzer:
+    def __init__(self, config: dict):
         self.config = config
+        self.jar_path = Path("java-analyzer/target/java-code-atlas-analyzer-0.2.0.jar")
+        self.jdk_version = config["java"].get("jdk_version") or self._detect_jdk()
+        self.maven_home = config["java"].get("maven_home", "")
 
-    @classmethod
-    def from_env(cls) -> "DeepSeekClient":
-        api_key = os.environ["DEEPSEEK_API_KEY"]
-        return cls(DeepSeekConfig(api_key=api_key))
+    def analyze(self, output_path: Path) -> dict:
+        """执行 analyze 子命令"""
+        cmd = self._build_command("analyze")
+        cmd.extend(["--output", str(output_path)])
+        return self._run(cmd, output_path)
 
-    def complete_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
-        body = {
-            "model": self.config.model,
-            "response_format": {"type": "json_object"},
-            "temperature": 0.1,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, separators=(",", ":"))},
-            ],
-        }
-        headers = {"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"}
-        for attempt in range(1, self.config.max_retries + 1):
-            response = requests.post(
-                self.config.endpoint,
-                headers=headers,
-                data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-                timeout=self.config.timeout_seconds,
-            )
-            if response.status_code < 500:
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-                return json.loads(content)
-            time.sleep(2 ** attempt)
-        response.raise_for_status()
-        raise RuntimeError("unreachable")
+    def metrics(self, input_path: Path, output_path: Path) -> dict:
+        """执行 metrics 子命令"""
+        cmd = self._build_command("metrics")
+        cmd.extend(["--input", str(input_path), "--output", str(output_path)])
+        return self._run(cmd, output_path)
+
+    def _build_command(self, subcommand: str) -> list[str]:
+        cmd = ["java"]
+        # JDK 版本指定（如有 JAVA_HOME）
+        java_home = os.environ.get(f"JAVA_{self.jdk_version}_HOME", "")
+        if java_home:
+            cmd[0] = f"{java_home}/bin/java"
+
+        cmd.extend(["-jar", str(self.jar_path), subcommand])
+
+        # Maven 路径
+        mvnhome = self.maven_home or os.environ.get("M2_HOME", "")
+        if mvnhome:
+            cmd.extend(["--maven-home", mvnhome])
+
+        # 源码目录
+        sources = self.config["sources"]
+        cmd.extend(["--root", sources["root"]])
+        for mod in sources.get("modules", []):
+            cmd.extend(["--module", mod])
+
+        return cmd
+
+    def _run(self, cmd: list[str], output_path: Path) -> dict:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            raise RuntimeError(f"Java分析器失败:\n{result.stderr}")
+        with open(output_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # 校验版本
+        if data["atlas"]["version"] != "1.0.0":
+            raise ValueError(
+                f"数据版本不匹配: 期望 1.0.0, 收到 {data['atlas']['version']}")
+        return data
 ```
 
-### 2. 架构风格检测 Prompt 模板
+---
+
+## Phase 2 · 度量计算（3 天）
+
+### 2.1 JGraphT 图构建
+
+```java
+package io.github.javacodeatlas.metrics;
+
+import io.github.javacodeatlas.model.*;
+import org.jgrapht.Graph;
+import org.jgrapht.graph.*;
+import org.jgrapht.alg.scoring.*;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class GraphAnalyzer {
+    private final AtlasDocument doc;
+
+    public GraphAnalyzer(AtlasDocument doc) { this.doc = doc; }
+
+    // === 类级图 ===
+    public Graph<String, DefaultWeightedEdge> classGraph() {
+        Graph<String, DefaultWeightedEdge> g =
+            new DefaultDirectedWeightedGraph<>(DefaultWeightedEdge.class);
+        doc.entities.forEach(e -> g.addVertex(e.fqn));
+        for (Relationship r : doc.relationships) {
+            if (!g.containsVertex(r.source)) g.addVertex(r.source);
+            if (!g.containsVertex(r.target)) g.addVertex(r.target);
+            DefaultWeightedEdge edge = g.getEdge(r.source, r.target);
+            if (edge == null) {
+                edge = g.addEdge(r.source, r.target);
+                if (edge != null) g.setEdgeWeight(edge, r.weight);
+            } else {
+                g.setEdgeWeight(edge, g.getEdgeWeight(edge) + r.weight);
+            }
+        }
+        return g;
+    }
+
+    // === 模块级图（按 module 字段聚合，不是 java_package）===
+    public Graph<String, DefaultWeightedEdge> moduleGraph() {
+        Graph<String, DefaultWeightedEdge> g =
+            new DefaultDirectedWeightedGraph<>(DefaultWeightedEdge.class);
+        Set<String> modules = doc.entities.stream()
+            .map(e -> e.module).collect(Collectors.toSet());
+        modules.forEach(g::addVertex);
+        for (Relationship r : doc.relationships) {
+            String srcMod = entityModule(r.source);
+            String tgtMod = entityModule(r.target);
+            if (srcMod == null || tgtMod == null) continue;
+            if (srcMod.equals(tgtMod)) continue;  // 跳过模块内自环
+            DefaultWeightedEdge edge = g.getEdge(srcMod, tgtMod);
+            if (edge == null) {
+                edge = g.addEdge(srcMod, tgtMod);
+                if (edge != null) g.setEdgeWeight(edge, r.weight);
+            } else {
+                g.setEdgeWeight(edge, g.getEdgeWeight(edge) + r.weight);
+            }
+        }
+        return g;
+    }
+
+    private String entityModule(String fqn) {
+        return doc.entities.stream()
+            .filter(e -> e.fqn.equals(fqn))
+            .findFirst().map(e -> e.module).orElse(null);
+    }
+
+    // === 入度/出度 ===
+    public Map<String, int[]> degrees(Graph<String, ?> g) {
+        Map<String, int[]> result = new HashMap<>();
+        for (String v : g.vertexSet()) {
+            result.put(v, new int[]{g.inDegreeOf(v), g.outDegreeOf(v)});
+        }
+        return result;
+    }
+
+    // === Tarjan SCC ===
+    public List<List<String>> scc(Graph<String, ?> g) {
+        var alg = new org.jgrapht.alg.connectivity.
+            KosarajuStrongConnectivityInspector<>(g);
+        return alg.stronglyConnectedSets().stream()
+            .filter(set -> set.size() > 1)
+            .map(ArrayList::new)
+            .collect(Collectors.toList());
+    }
+
+    // === Martin A/I 矩阵 ===
+    public record ModuleMetric(
+        String module, int ca, int ce, double instability,
+        double abstractness, double distance, String zone) {}
+
+    public List<ModuleMetric> martinMetrics() {
+        Graph<String, DefaultWeightedEdge> mg = moduleGraph();
+        List<ModuleMetric> result = new ArrayList<>();
+        for (String mod : mg.vertexSet()) {
+            int ca = mg.inDegreeOf(mod);
+            int ce = mg.outDegreeOf(mod);
+            double I = (ca + ce) == 0 ? 0 : (double) ce / (ca + ce);
+            double A = abstractness(mod);
+            double D = Math.abs(A + I - 1);
+            String zone = classifyZone(I, A);
+            result.add(new ModuleMetric(mod, ca, ce, I, A, D, zone));
+        }
+        return result;
+    }
+
+    private double abstractness(String module) {
+        long total = doc.entities.stream()
+            .filter(e -> e.module.equals(module)).count();
+        if (total == 0) return 1.0;
+        long absCount = doc.entities.stream()
+            .filter(e -> e.module.equals(module))
+            .filter(e -> "abstract".equals(e.kind)
+                      || "interface".equals(e.kind)).count();
+        return (double) absCount / total;
+    }
+
+    private String classifyZone(double I, double A) {
+        if (I < 0.5 && A < 0.5) return "pain";       // 痛苦区
+        if (I >= 0.5 && A >= 0.5) return "good";     // 好区
+        if (I < 0.5 && A >= 0.5) return "useless";   // 无用区
+        return "normal";                               // 稳定区
+    }
+
+    // === 热点评分 ===
+    public record Hotspot(String fqn, double score, String severity) {}
+
+    public List<Hotspot> hotspots(int topN) {
+        Graph<String, DefaultWeightedEdge> cg = classGraph();
+        return doc.entities.stream().map(e -> {
+            double score = cg.inDegreeOf(e.fqn) * 1.0
+                + cg.outDegreeOf(e.fqn) * 0.5
+                + e.cyclomaticComplexityMax * 0.3
+                + e.loc * 0.01
+                + e.transactionalMethods.size() * 0.2
+                + e.implements_.size() * 0.1;
+            String severity = score > 20 ? "red"
+                : score > 10 ? "yellow" : "green";
+            return new Hotspot(e.fqn, score, severity);
+        }).sorted((a, b) -> Double.compare(b.score, a.score))
+          .limit(topN).collect(Collectors.toList());
+    }
+
+    // === 模块边界质量评分 ===
+    public record BoundaryScore(
+        String module, int total, double interfaceRatio,
+        int cycles, int publicMethods, int score, String grade) {}
+
+    public List<BoundaryScore> boundaryScores() {
+        Graph<String, DefaultWeightedEdge> mg = moduleGraph();
+        List<List<String>> cycles = scc(mg);
+        Set<String> cyclicModules = cycles.stream()
+            .flatMap(List::stream).collect(Collectors.toSet());
+
+        return mg.vertexSet().stream().map(mod -> {
+            List<EntityFingerprint> ents = doc.entities.stream()
+                .filter(e -> e.module.equals(mod)).toList();
+            long interfaces = ents.stream()
+                .filter(e -> "interface".equals(e.kind)
+                         || "abstract".equals(e.kind)).count();
+            double ir = ents.isEmpty() ? 0 : (double) interfaces / ents.size();
+            int pubMethods = ents.stream()
+                .mapToInt(e -> e.publicMethods).sum();
+            int cyclePenalty = cyclicModules.contains(mod)
+                ? cycles.stream()
+                    .filter(c -> c.contains(mod))
+                    .mapToInt(List::size).max().orElse(0) * 5
+                : 0;
+
+            int score = 100 - cyclePenalty
+                - Math.max(0, (int)((0.25 - Math.abs(ir - 0.25)) * 100))
+                - Math.min(20, pubMethods / 50);
+            String grade = score >= 80 ? "良好"
+                : score >= 60 ? "一般" : score >= 40 ? "弱" : "无边界";
+
+            return new BoundaryScore(
+                mod, ents.size(), ir,
+                cyclicModules.contains(mod) ? 1 : 0,
+                pubMethods, Math.max(0, score), grade);
+        }).collect(Collectors.toList());
+    }
+}
+```
+
+---
+
+## Phase 3 · LLM 模式识别（3 天）(修复 bug#7: LLM 可配置)
+
+### 3.1 LLM 后端抽象
 
 ```python
-ARCHITECTURE_STYLE_PROMPT = """你是一个 Java 代码结构分析器。你只能基于结构指纹判断架构，不允许根据类名、方法名、业务词或注释推断业务含义。
+# src/llm/backend.py
+import httpx
+import json
+from typing import Any
+from dataclasses import dataclass
 
-输入是一个仓库或模块的结构事实，包含：
-1. 架构角色计数：REST_ENTRY、BUSINESS_LOGIC、DATA_ACCESS、CONFIG、TRANSACTIONAL、MESSAGE_CONSUMER、RPC_CLIENT、ASPECT。
-2. 模块间依赖边：source_module、target_module、relationship_type、weight。
-3. 包结构摘要：只可用于判断层次方向，不可解释业务词。
-4. Martin A/I 指标、SCC 环、热点分布。
+@dataclass
+class LlmConfig:
+    endpoint: str
+    api_key: str
+    model: str
+    temperature: float = 0.0
+    max_tokens: int = 4096
+    headers: dict = None
+    max_concurrency: int = 2
+    retry: int = 3
 
-请识别架构风格，只返回 JSON：
-{
-  "architecture_styles": [
-    {
-      "style": "layered|hexagonal|cqrs|event_driven|anemic_layered|no_clear_architecture",
-      "confidence": 0.0,
-      "evidence": ["结构证据，不包含业务解释"],
-      "violations": ["结构问题"],
-      "affected_modules": ["模块ID"]
-    }
-  ],
-  "primary_style": "layered|hexagonal|cqrs|event_driven|anemic_layered|no_clear_architecture",
-  "risk_level": "low|medium|high",
-  "summary": "中文结构结论，最多120字"
-}
+    def __post_init__(self):
+        if self.headers is None:
+            self.headers = {}
+
+class LlmBackend:
+    """OpenAI 兼容 API 抽象层。支持 DeepSeek / OpenAI / 自部署模型。"""
+
+    def __init__(self, config: LlmConfig):
+        self.config = config
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120.0),
+            headers=self._build_headers())
+
+    def _build_headers(self) -> dict:
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
+        headers.update(self.config.headers)
+        return headers
+
+    async def chat(self, messages: list[dict]) -> str:
+        for attempt in range(self.config.retry + 1):
+            try:
+                resp = await self.client.post(
+                    self.config.endpoint,
+                    json={
+                        "model": self.config.model,
+                        "messages": messages,
+                        "temperature": self.config.temperature,
+                        "max_tokens": self.config.max_tokens,
+                        "response_format": {"type": "json_object"},
+                    })
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+            except (httpx.HTTPError, KeyError) as e:
+                if attempt == self.config.retry:
+                    raise
+                await asyncio.sleep(2 ** attempt)
+        raise RuntimeError("LLM 调用失败")
+```
+
+### 3.2 批量推理管线
+
+```python
+# src/llm/pipeline.py
+import asyncio
+import json
+from .backend import LlmBackend
+from .prompts import ARCHITECTURE_PROMPT, DESIGN_PATTERN_PROMPT
+
+class LlmPipeline:
+    def __init__(self, backend: LlmBackend, batch_size: int = 50):
+        self.backend = backend
+        self.batch_size = batch_size
+        self.semaphore = asyncio.Semaphore(backend.config.max_concurrency)
+
+    async def detect_architecture(self, modules: list[dict]) -> list[dict]:
+        """架构风格检测"""
+        tasks = []
+        for batch in self._batches(modules):
+            tasks.append(self._arch_batch(batch))
+        results = await asyncio.gather(*tasks)
+        return [item for batch in results for item in batch]
+
+    async def detect_patterns(self, classes: list[dict]) -> list[dict]:
+        """设计模式识别"""
+        tasks = []
+        for batch in self._batches(classes):
+            tasks.append(self._pattern_batch(batch))
+        results = await asyncio.gather(*tasks)
+        return [item for batch in results for item in batch]
+
+    async def _arch_batch(self, modules: list[dict]) -> list[dict]:
+        async with self.semaphore:
+            prompt = ARCHITECTURE_PROMPT.format(
+                modules=json.dumps(modules, ensure_ascii=False))
+            resp = await self.backend.chat([
+                {"role": "system", "content": "你是 Java 架构分析器。只基于结构特征判断。"},
+                {"role": "user", "content": prompt}
+            ])
+            return json.loads(resp)["results"]
+
+    async def _pattern_batch(self, classes: list[dict]) -> list[dict]:
+        async with self.semaphore:
+            prompt = DESIGN_PATTERN_PROMPT.format(
+                classes=json.dumps(classes, ensure_ascii=False))
+            resp = await self.backend.chat([
+                {"role": "system", "content": "你是设计模式识别器。只基于结构特征判断。"},
+                {"role": "user", "content": prompt}
+            ])
+            return json.loads(resp)["results"]
+
+    def _batches(self, items: list) -> list[list]:
+        return [items[i:i + self.batch_size]
+                for i in range(0, len(items), self.batch_size)]
+```
+
+### 3.3 Prompt 模板
+
+```python
+# src/llm/prompts.py
+
+ARCHITECTURE_PROMPT = """
+你是一个 Java 代码结构分析器。分析以下模块的结构指纹（不含类名和方法名的业务语义），
+判断每个模块的架构风格。
+
+输入（模块指纹，JSON）：
+{modules}
 
 判断规则：
-- 分层架构：REST_ENTRY -> BUSINESS_LOGIC -> DATA_ACCESS 为主，反向依赖少于总边数 5%。
-- 六边形架构：接口比例 0.15-0.40，核心模块框架注解少，外部适配模块依赖核心接口。
-- CQRS：读写侧结构分离，命令/查询处理器角色边界明显，读写依赖图相互独立。
-- 事件驱动：MESSAGE_CONSUMER 或 LISTENS/RPC_CALLS/异步边占比高于 15%，同步调用链较短。
-- 无清晰架构：存在大量跨层跳过、反向依赖、SCC 环，且角色分布无稳定方向。
-- 不确定时降低 confidence，不要编造。
+- "layered": controller 只调 service，service 只调 repository，单向依赖
+- "hexagonal": domain 包 0 框架注解，infrastructure 包实现 domain 的接口
+- "cqrs": command 和 query 被分离到不同的包/类
+- "event-driven": ≥15% 的类有消息监听注解
+- "none": 以上皆不满足
+
+返回严格 JSON：
+{{"results": [{{"module": "...", "style": "layered", "confidence": 0.9}}]}}
+"""
+
+DESIGN_PATTERN_PROMPT = """
+你是一个设计模式识别器。以下类的结构指纹已去除业务语义。
+基于继承、实现、字段依赖、构造器特征识别设计模式。
+
+输入（类指纹，JSON）：
+{classes}
+
+可识别模式及判断条件：
+- Singleton: private 构造 + static getInstance
+- Builder: 内部 static Builder 类 + build() 返回外部类型
+- Strategy: interface + ≥3 个实现 + 调用方持有 interface 引用
+- Factory: 接口 + 多个实现 + 专有工厂类（方法返回接口类型）
+- Adapter: 实现接口 A + 持有类型 B + 方法内调用 B
+- Decorator: 实现接口 A + 持有同接口 A 的引用 + 方法内 delegate
+- Proxy: 实现接口 A + 持有同接口 A 的引用 + 额外控制逻辑
+- Observer: 一对多依赖 + 通知机制
+- Template Method: abstract class + final 模板方法 + 子类覆写
+- Repository: extends JpaRepository + 无自定义 SQL
+
+返回严格 JSON：
+{{"results": [{{"fqn": "...", "patterns": ["Singleton"], "confidence": 0.9}}]}}
 """
 ```
 
-### 3. 15 种设计模式的结构特征定义
+### 3.4 成本估算
 
-| 模式 | 结构特征判断条件 |
-|---|---|
-| Singleton | 私有构造器；静态字段持有自身类型；公开静态工厂/访问方法；实例创建点极少；类通常为 `final` 或构造器受限 |
-| Factory Method | 抽象父类或接口定义创建方法；子类覆盖创建方法；返回类型为抽象类型；调用方依赖抽象产品；创建逻辑集中在方法体 |
-| Abstract Factory | 工厂接口声明多个创建方法；每个方法返回不同抽象产品；具体工厂实现同一组方法；产品族接口之间有并行关系 |
-| Builder | 构造目标类字段多；Builder 类持有同名字段；链式 setter 返回 Builder 自身；存在 `build()` 返回目标类型；目标构造器私有或包可见 |
-| Prototype | 实现 `Cloneable` 或有 copy/clone 结构；构造器接收同类型对象；创建逻辑复用已有实例状态；继承层级中复制方法返回父抽象类型 |
-| Adapter | 实现目标接口；字段持有被适配对象；方法体主要委托到字段对象；接口方法与被适配方法数量接近；依赖边从适配器指向外部类型 |
-| Decorator | 实现与字段相同的接口；构造器接收该接口；多数方法先/后调用被包装对象；可存在多个同接口装饰类；装饰类之间无继承强耦合 |
-| Proxy | 实现目标接口；字段持有真实对象或远程客户端；方法前后有权限/缓存/事务/重试结构；真实调用被包裹；可能含懒加载 |
-| Composite | 抽象组件接口；叶子和容器都实现组件；容器持有 `List<Component>`；递归调用子组件方法；存在 add/remove child 方法 |
-| Bridge | 抽象层持有实现层接口字段；抽象类方法委托到实现接口；实现层有多个具体类；抽象层和实现层可独立扩展 |
-| Strategy | 上下文类字段持有策略接口；多个具体策略实现同一接口；上下文运行时接收策略；策略方法签名稳定；上下文不直接依赖具体策略 |
-| Observer | Subject 持有观察者集合；存在 register/unregister/notify 结构；Observer 接口有 update/onEvent 方法；通知循环遍历观察者 |
-| Template Method | 抽象类定义 `final` 模板方法；模板方法调用抽象/受保护 hook；子类覆盖 hook；算法步骤顺序固定在父类 |
-| Chain of Responsibility | 处理器接口或抽象类持有 next handler；处理方法可选择处理或转发；链构建通过 setter/constructor；多个处理器实现同一接口 |
-| Repository | 类/接口承担持久化边界；依赖 Entity/Document 类型；方法返回集合/Optional/实体；注解为 `@Repository` 或接口继承持久化基类；被 Service 注入 |
+```
+5000 类的场景：
+  架构检测：~5 个模块 × 1 次调用 × (200 input + 150 output) tokens ≈ 1,750 tokens
+  模式识别：5000 类 / 50 batch × (5,000 input + 2,000 output) tokens ≈ 700,000 tokens
+  总计：~701,750 tokens
+  
+DeepSeek 价格：~¥0.002/1K tokens → ~¥1.40
+OpenAI gpt-4o-mini：~$0.15/1M input + $0.60/1M output → ~$0.13
+```
 
-### 4. 批量推理策略
+---
 
-一次 API 调用最多打包 50 个类，输入只包含结构字段，删除业务名称敏感字段。为保留可追踪性，使用稳定 `entity_id`，但 LLM 不需要知道业务名。
+## Phase 4 · Web 服务 + 可视化（4 天）
+
+### 4.1 aiohttp Web 服务器
 
 ```python
-def make_pattern_batches(entities: list[dict], relationships: list[dict], batch_size: int = 50) -> list[dict]:
-    relation_index: dict[str, list[dict]] = {}
-    for relation in relationships:
-        relation_index.setdefault(relation["source"], []).append(
-            {
-                "target_kind": relation["target"],
-                "type": relation["type"],
-                "weight": relation["weight"],
-                "count": relation["count"],
-            }
-        )
-
-    compact_entities = []
-    for entity in entities:
-        compact_entities.append(
-            {
-                "entity_id": entity["id"],
-                "kind": entity["kind"],
-                "modifiers": entity["modifiers"],
-                "annotations": entity["annotations"],
-                "roles": entity["roles"],
-                "extends_count": len(entity["extendsTypes"]),
-                "implements_count": len(entity["implementsTypes"]),
-                "method_count": entity["fingerprint"]["methods"],
-                "public_methods": entity["fingerprint"]["publicMethods"],
-                "constructors": entity["fingerprint"]["constructors"],
-                "injected_deps": entity["fingerprint"]["injectedDeps"],
-                "field_injection": entity["fingerprint"]["fieldInjection"],
-                "constructor_injection": entity["fingerprint"]["constructorInjection"],
-                "static_methods": entity["fingerprint"]["staticMethods"],
-                "final_fields": entity["fingerprint"]["finalFields"],
-                "loc": entity["fingerprint"]["loc"],
-                "complexity": entity["fingerprint"]["cyclomaticComplexityMax"],
-                "outgoing_relationships": relation_index.get(entity["id"], [])[:30],
-            }
-        )
-
-    batches = []
-    for start in range(0, len(compact_entities), batch_size):
-        batches.append({"batch_index": start // batch_size, "entities": compact_entities[start:start + batch_size]})
-    return batches
-```
-
-### 5. 模式识别输出 JSON Schema
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://javacodeatlas.github.io/schema/atlas-patterns-1.0.json",
-  "type": "object",
-  "required": ["schemaVersion", "architecture", "designPatterns", "boundaryAssessments"],
-  "properties": {
-    "schemaVersion": { "type": "string", "const": "1.0" },
-    "architecture": {
-      "type": "object",
-      "required": ["primaryStyle", "riskLevel", "styles", "summary"],
-      "properties": {
-        "primaryStyle": { "type": "string" },
-        "riskLevel": { "type": "string", "enum": ["low", "medium", "high"] },
-        "summary": { "type": "string" },
-        "styles": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": ["style", "confidence", "evidence", "violations", "affectedModules"],
-            "properties": {
-              "style": { "type": "string" },
-              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-              "evidence": { "type": "array", "items": { "type": "string" } },
-              "violations": { "type": "array", "items": { "type": "string" } },
-              "affectedModules": { "type": "array", "items": { "type": "string" } }
-            }
-          }
-        }
-      }
-    },
-    "designPatterns": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["entityId", "patterns"],
-        "properties": {
-          "entityId": { "type": "string" },
-          "patterns": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["name", "confidence", "evidence"],
-              "properties": {
-                "name": { "type": "string" },
-                "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-                "evidence": { "type": "array", "items": { "type": "string" } }
-              }
-            }
-          }
-        }
-      }
-    },
-    "boundaryAssessments": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["moduleId", "quality", "boundaryType", "internalCohesion", "externalCoupling", "suggestions"],
-        "properties": {
-          "moduleId": { "type": "string" },
-          "quality": { "type": "string", "enum": ["良好", "一般", "弱", "无边界"] },
-          "boundaryType": { "type": "string" },
-          "internalCohesion": { "type": "string", "enum": ["高", "中", "低"] },
-          "externalCoupling": { "type": "string", "enum": ["高", "中", "低"] },
-          "suggestions": { "type": "array", "items": { "type": "string" } }
-        }
-      }
-    }
-  }
-}
-```
-
-### 6. 成本估算（5000 类）
-
-估算假设：
-
-| 项目 | 数值 |
-|---|---:|
-| 类数 | 5000 |
-| 每批类数 | 50 |
-| API 调用次数 | 100 |
-| 每个类压缩后输入 | 220 tokens |
-| 每批固定 prompt | 1600 tokens |
-| 每批输出 | 2500 tokens |
-| 总输入 tokens | 5000 × 220 + 100 × 1600 = 1,260,000 |
-| 总输出 tokens | 100 × 2500 = 250,000 |
-| 合计 | 1,510,000 tokens |
-
-如果 DeepSeek 价格按输入 0.14 美元/百万 tokens、输出 0.28 美元/百万 tokens 估算：
-
-```text
-输入成本 = 1.26 × 0.14 = 0.1764 美元
-输出成本 = 0.25 × 0.28 = 0.0700 美元
-总成本约 = 0.2464 美元
-```
-
-实际价格以 DeepSeek 当日官方价格为准；实现中把单次扫描的 token 用量写入 `atlas-patterns.json.usage`，用于审计。
-
-## Phase 4 多仓 + 可视化（4 天）
-
-### 1. 多仓配置格式
-
-`repos.yaml`：
-
-```yaml
-schema_version: "1.0"
-workspace: "/workspace"
-output_dir: "/workspace/atlas-output"
-repositories:
-  - alias: "order-service"
-    path: "/workspace/order-service"
-    role: "business_service"
-    build_tool: "maven"
-    include_tests: false
-    tags: ["runtime", "spring-boot"]
-  - alias: "payment-api"
-    path: "/workspace/payment-api"
-    role: "api_sdk"
-    build_tool: "maven"
-    include_tests: false
-    tags: ["sdk", "shared"]
-  - alias: "common-lib"
-    path: "/workspace/common-lib"
-    role: "shared_library"
-    build_tool: "gradle"
-    include_tests: false
-    tags: ["library"]
-dependency_mapping:
-  group_prefixes:
-    "com.example.order": "order-service"
-    "com.example.payment": "payment-api"
-    "com.example.common": "common-lib"
-  service_names:
-    "payment-service": "payment-api"
-scan:
-  include:
-    - "**/src/main/java/**/*.java"
-  exclude:
-    - "**/target/**"
-    - "**/build/**"
-    - "**/generated/**"
-visualization:
-  default_view: "topology"
-  max_edges: 800
-```
-
-YAML schema：
-
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["schema_version", "workspace", "output_dir", "repositories"],
-  "properties": {
-    "schema_version": { "type": "string", "const": "1.0" },
-    "workspace": { "type": "string" },
-    "output_dir": { "type": "string" },
-    "repositories": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": ["alias", "path", "role", "build_tool"],
-        "properties": {
-          "alias": { "type": "string", "pattern": "^[a-zA-Z0-9_.-]+$" },
-          "path": { "type": "string" },
-          "role": { "type": "string", "enum": ["business_service", "api_sdk", "shared_library", "parent_pom", "infrastructure", "data_layer", "messaging", "unknown"] },
-          "build_tool": { "type": "string", "enum": ["maven", "gradle", "unknown"] },
-          "include_tests": { "type": "boolean" },
-          "tags": { "type": "array", "items": { "type": "string" } }
-        }
-      }
-    },
-    "dependency_mapping": {
-      "type": "object",
-      "properties": {
-        "group_prefixes": { "type": "object", "additionalProperties": { "type": "string" } },
-        "service_names": { "type": "object", "additionalProperties": { "type": "string" } }
-      }
-    },
-    "scan": {
-      "type": "object",
-      "properties": {
-        "include": { "type": "array", "items": { "type": "string" } },
-        "exclude": { "type": "array", "items": { "type": "string" } }
-      }
-    },
-    "visualization": {
-      "type": "object",
-      "properties": {
-        "default_view": { "type": "string", "enum": ["topology", "ai_matrix", "layers", "hotspots"] },
-        "max_edges": { "type": "integer", "minimum": 1 }
-      }
-    }
-  }
-}
-```
-
-### 2. 跨仓依赖解析流程
-
-流程：
-
-1. 对每个仓执行 Maven 依赖树：
-   ```bash
-   mvn -q dependency:tree -DoutputType=dot -DoutputFile=/workspace/atlas-output/order-service/dependency-tree.dot
-   ```
-2. 解析 DOT 中的 `groupId:artifactId:type:version:scope`。
-3. 为每个仓建立坐标索引：
-   ```text
-   exact: groupId:artifactId -> repoAlias
-   groupPrefix: groupId prefix -> repoAlias
-   serviceName: @FeignClient(name) -> repoAlias
-   packagePrefix: top package -> repoAlias
-   ```
-4. 对 Java 关系列表做归一化：如果 `target` 是本次扫描实体，映射到目标仓；如果是外部 Maven 坐标，查 exact/groupPrefix；如果是 `rpc:@FeignClient(...)`，解析 name/value/serviceId 查 serviceName。
-5. 生成跨仓边：
-   ```json
-   {
-     "sourceRepo": "order-service",
-     "targetRepo": "payment-api",
-     "type": "COMPILE",
-     "source": "com.example.order.PaymentGateway",
-     "target": "com.example.payment.PaymentClient",
-     "weight": 2.3,
-     "evidence": ["maven dependency com.example:payment-api", "@FeignClient(name=\"payment-service\")"]
-   }
-   ```
-
-算法代码：
-
-```python
-def map_dependency_to_repo(dependency: dict, repo_index: dict) -> str | None:
-    coordinate = f"{dependency['group_id']}:{dependency['artifact_id']}"
-    if coordinate in repo_index["exact"]:
-        return repo_index["exact"][coordinate]
-    for group_prefix, alias in sorted(repo_index["group_prefixes"].items(), key=lambda item: len(item[0]), reverse=True):
-        if dependency["group_id"].startswith(group_prefix):
-            return alias
-    return None
-
-
-def resolve_cross_repo_edges(all_documents: list[dict], repo_index: dict) -> list[dict]:
-    entity_to_repo = {}
-    package_to_repo = {}
-    for document in all_documents:
-        alias = document["repository"]["alias"]
-        for entity in document["entities"]:
-            entity_to_repo[entity["id"]] = alias
-            if entity["packageName"]:
-                package_to_repo.setdefault(entity["packageName"], alias)
-
-    edges = {}
-    for document in all_documents:
-        source_repo = document["repository"]["alias"]
-        for relation in document["relationships"]:
-            target_repo = entity_to_repo.get(relation["target"])
-            if target_repo is None:
-                target_repo = resolve_by_prefix(relation["target"], package_to_repo)
-            if target_repo is None and relation["type"] == "RPC_CALLS":
-                target_repo = resolve_feign_target(relation["target"], repo_index["service_names"])
-            if target_repo and target_repo != source_repo:
-                key = (source_repo, target_repo, relation["type"])
-                current = edges.setdefault(
-                    key,
-                    {"sourceRepo": source_repo, "targetRepo": target_repo, "type": relation["type"], "weight": 0.0, "count": 0, "evidence": []},
-                )
-                current["weight"] += relation["weight"]
-                current["count"] += relation["count"]
-                current["evidence"].extend(relation.get("evidence", [])[:3])
-    return list(edges.values())
-```
-
-### 3. Cytoscape.js HTML 模板
-
-HTML 由 Python 生成，单文件内嵌 JSON、Cytoscape.js 和 D3.js。四种视图：依赖拓扑、A/I 矩阵、分层透视、热点热力图。
-
-```python
-import html
+# src/web/server.py
+import asyncio
 import json
+import webbrowser
+from pathlib import Path
+from aiohttp import web
 
+class AtlasServer:
+    def __init__(self, config: dict):
+        self.config = config
+        self.app = web.Application()
+        self.atlas_data = None     # 当前图谱数据
+        self.status = "idle"
+        self._setup_routes()
 
-def render_graph_html(atlas: dict) -> str:
-    data_json = html.escape(json.dumps(atlas, ensure_ascii=False), quote=False)
-    return f"""<!doctype html>
+    def _setup_routes(self):
+        self.app.router.add_get("/", self._index)
+        self.app.router.add_get("/api/atlas.json", self._atlas_json)
+        self.app.router.add_get("/api/status", self._status)
+        self.app.router.add_post("/api/reload", self._reload)
+        self.app.router.add_get("/ws", self._websocket)
+
+    async def _index(self, request):
+        template = Path("templates/graph.html.j2").read_text()
+        return web.Response(text=template, content_type="text/html")
+
+    async def _atlas_json(self, request):
+        if not self.atlas_data:
+            raise web.HTTPNotFound(text="图谱尚未生成")
+        return web.json_response(self.atlas_data)
+
+    async def _status(self, request):
+        return web.json_response({"status": self.status})
+
+    async def _reload(self, request):
+        self.status = "scanning"
+        # 异步触发重扫
+        asyncio.create_task(self._rescan())
+        return web.json_response({"status": "scanning"})
+
+    async def _websocket(self, request):
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        self._ws_clients.append(ws)
+        async for msg in ws:
+            pass  # 客户端可以发送命令
+        self._ws_clients.remove(ws)
+        return ws
+
+    async def start(self):
+        """启动服务"""
+        host = self.config["serve"]["host"]
+        port = self.config["serve"]["port"]
+        open_browser = self.config["serve"]["open_browser"]
+
+        # 先做首次扫描
+        await self._rescan()
+
+        runner = web.AppRunner(self.app)
+        await runner.setup()
+        site = web.TCPSite(runner, host, port)
+        await site.start()
+
+        url = f"http://{host}:{port}"
+        print(f"\n  📊 Java Code Atlas → {url}")
+        print(f"  📁 监控目录: {self.config['sources']['root']}")
+        print(f"  🔄 Watch 模式: {'启用' if self.config['serve']['watch'] else '关闭'}\n")
+
+        if open_browser:
+            webbrowser.open(url)
+
+        # 启动文件监听
+        if self.config["serve"]["watch"]:
+            from .watcher import FileWatcher
+            watcher = FileWatcher(self.config, self._on_file_changed)
+            asyncio.create_task(watcher.start())
+
+        # 保持运行
+        await asyncio.Event().wait()
+```
+
+### 4.2 Watch 文件监听
+
+```python
+# src/web/watcher.py
+import asyncio
+import time
+from pathlib import Path
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+class FileWatcher:
+    def __init__(self, config: dict, callback):
+        self.config = config
+        self.callback = callback
+        self.observer = Observer()
+        self._last_scan = 0
+        self._debounce = 2.0  # 2秒防抖
+
+    async def start(self):
+        root = self.config["sources"]["root"]
+        handler = _Handler(self._on_event)
+        self.observer.schedule(handler, str(root), recursive=True)
+        self.observer.start()
+
+    def _on_event(self, path: str):
+        if not path.endswith(".java"):
+            return
+        now = time.time()
+        if now - self._last_scan < self._debounce:
+            return  # 防抖
+        self._last_scan = now
+        asyncio.create_task(self.callback(path))
+
+class _Handler(FileSystemEventHandler):
+    def __init__(self, callback):
+        self.callback = callback
+
+    def on_modified(self, event):
+        if not event.is_directory:
+            self.callback(event.src_path)
+
+    def on_created(self, event):
+        if not event.is_directory:
+            self.callback(event.src_path)
+```
+
+### 4.3 HTML 模板 (修复 bug#4: 数据外部加载)
+
+```html
+<!-- templates/graph.html.j2 -->
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
   <title>Java Code Atlas</title>
-  <script src="https://unpkg.com/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.0/dist/cytoscape.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    body {{ margin:0; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:#f7f8fa; color:#1f2937; }}
-    header {{ height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 18px; background:#111827; color:white; }}
-    main {{ display:grid; grid-template-columns: 280px 1fr; height:calc(100vh - 56px); }}
-    aside {{ border-right:1px solid #d1d5db; background:white; padding:14px; overflow:auto; }}
-    .views {{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }}
-    button {{ border:1px solid #cbd5e1; background:white; color:#111827; border-radius:6px; padding:8px 10px; cursor:pointer; font-size:13px; }}
-    button.active {{ background:#2563eb; color:white; border-color:#2563eb; }}
-    #stage {{ position:relative; min-width:0; }}
-    #cy, #matrix, #layers, #hotspots {{ position:absolute; inset:0; display:none; }}
-    #cy.active, #matrix.active, #layers.active, #hotspots.active {{ display:block; }}
-    .metric {{ display:flex; justify-content:space-between; border-bottom:1px solid #eef2f7; padding:8px 0; font-size:13px; }}
-    .tooltip {{ position:absolute; pointer-events:none; background:#111827; color:white; padding:8px 10px; border-radius:6px; font-size:12px; display:none; max-width:360px; }}
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:system-ui; display:flex; flex-direction:column; height:100vh;
+           background:#0f172a; color:#e2e8f0; }
+    header { padding:12px 20px; background:#1e293b; display:flex;
+             justify-content:space-between; align-items:center; }
+    header strong { font-size:18px; }
+    main { display:flex; flex:1; overflow:hidden; }
+    aside { width:280px; background:#1e293b; padding:16px; overflow-y:auto; }
+    section { flex:1; position:relative; }
+    .views { display:flex; flex-direction:column; gap:8px; margin-bottom:20px; }
+    .views button { padding:10px; border:1px solid #334155; background:#0f172a;
+                    color:#94a3b8; cursor:pointer; border-radius:6px; font-size:14px; }
+    .views button.active { background:#2563eb; color:white; border-color:#2563eb; }
+    #stage { position:relative; }
+    #stage > div, #stage > svg { position:absolute; inset:0; display:none; }
+    #stage > div.active, #stage > svg.active { display:block; }
+    #tooltip { position:absolute; padding:8px 12px; background:#1e293b;
+               border:1px solid #334155; border-radius:6px; font-size:12px;
+               pointer-events:none; display:none; z-index:100; }
+    #status-bar { padding:8px 20px; background:#1e293b; font-size:12px; color:#64748b;
+                  display:flex; gap:20px; }
   </style>
 </head>
 <body>
 <header>
-  <strong>Java Code Atlas</strong>
-  <span id="repo-title"></span>
+  <strong>📊 Java Code Atlas</strong>
+  <span id="project-name"></span>
 </header>
 <main>
   <aside>
     <div class="views">
-      <button id="btn-topology" class="active" onclick="switchView('topology')">依赖拓扑</button>
-      <button id="btn-matrix" onclick="switchView('matrix')">A/I 矩阵</button>
-      <button id="btn-layers" onclick="switchView('layers')">分层透视</button>
-      <button id="btn-hotspots" onclick="switchView('hotspots')">热点热力</button>
+      <button id="btn-topo" class="active" onclick="switchView('topo')">🔗 依赖拓扑</button>
+      <button id="btn-matrix" onclick="switchView('matrix')">📐 A/I 矩阵</button>
+      <button id="btn-layers" onclick="switchView('layers')">📚 分层透视</button>
+      <button id="btn-hot" onclick="switchView('hot')">🔥 热点热力</button>
     </div>
     <div id="summary"></div>
   </aside>
   <section id="stage">
-    <div id="cy" class="active"></div>
+    <div id="topo" class="active"></div>
     <svg id="matrix"></svg>
     <svg id="layers"></svg>
-    <svg id="hotspots"></svg>
-    <div id="tooltip" class="tooltip"></div>
+    <svg id="hot"></svg>
+    <div id="tooltip"></div>
   </section>
 </main>
-<script id="atlas-data" type="application/json">{data_json}</script>
-<script>
-const atlas = JSON.parse(document.getElementById('atlas-data').textContent);
-const tooltip = document.getElementById('tooltip');
+<div id="status-bar">
+  <span id="status-text">加载中...</span>
+  <span id="update-time"></span>
+</div>
 
-function roleColor(roles) {{
+<script>
+// === 数据加载（外部 JSON，不是内联） ===
+let atlas = null;
+
+async function loadAtlas() {
+  try {
+    const resp = await fetch('/api/atlas.json');
+    atlas = await resp.json();
+    document.getElementById('project-name').textContent = atlas.atlas.project;
+    document.getElementById('status-text').textContent =
+      `${atlas.atlas.totalModules}模块 · ${atlas.atlas.totalEntities}类 · ${atlas.atlas.totalRelationships}关系`;
+    renderTopology();
+    updateSummary();
+    connectWebSocket();
+  } catch (e) {
+    document.getElementById('status-text').textContent = '图谱加载失败';
+  }
+}
+
+// === WebSocket 增量更新 ===
+function connectWebSocket() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  ws.onmessage = (event) => {
+    const delta = JSON.parse(event.data);
+    if (delta.type === 'incremental') {
+      applyDelta(delta);
+    } else if (delta.type === 'full-reload') {
+      loadAtlas();
+    }
+  };
+}
+
+function applyDelta(delta) {
+  // 局部更新图谱节点，不重新渲染整个图
+  delta.changed.forEach(item => {
+    if (item.type === 'entity') {
+      const node = cy.getElementById(item.fqn);
+      if (node.length) node.data(item.data);
+    }
+  });
+  document.getElementById('update-time').textContent =
+    `最后更新: ${new Date().toLocaleTimeString()}`;
+}
+
+// === 依赖拓扑图 ===
+let cy;
+function renderTopology() {
+  const elements = [];
+  atlas.entities.forEach(e => {
+    elements.push({
+      data: { id: e.fqn, label: e.className, module: e.module, roles: e.roles }
+    });
+  });
+  atlas.relationships.forEach(r => {
+    elements.push({
+      data: { id: `${r.source}->${r.target}`, source: r.source,
+              target: r.target, weight: r.weight, type: r.type }
+    });
+  });
+
+  cy = cytoscape({
+    container: document.getElementById('topo'),
+    elements: elements,
+    style: [
+      { selector: 'node', style: {
+        'label': 'data(label)',
+        'background-color': ele => roleColor(ele.data('roles')),
+        'width': ele => Math.max(20, Math.min(60, ele.degree() * 4 + 20)),
+        'height': ele => Math.max(20, Math.min(60, ele.degree() * 4 + 20)),
+        'font-size': '10px', 'color': '#e2e8f0'
+      }},
+      { selector: 'edge', style: {
+        'width': ele => Math.max(1, Math.min(5, ele.data('weight'))),
+        'line-color': ele => isCyclic(ele) ? '#ef4444' : '#475569',
+        'target-arrow-color': ele => isCyclic(ele) ? '#ef4444' : '#475569',
+        'target-arrow-shape': 'triangle'
+      }}
+    ],
+    layout: { name: 'cose', animate: false }
+  });
+
+  cy.on('tap', 'node', (evt) => {
+    const node = evt.target;
+    tooltip.innerHTML = `
+      <b>${node.data('label')}</b><br>
+      模块: ${node.data('module')}<br>
+      角色: ${node.data('roles').join(', ')}<br>
+      入度: ${node.degree(true)} · 出度: ${node.degree(false)}
+    `;
+  });
+}
+
+function roleColor(roles) {
+  if (!roles || !roles.length) return '#64748b';
   if (roles.includes('REST_ENTRY')) return '#16a34a';
   if (roles.includes('BUSINESS_LOGIC')) return '#2563eb';
   if (roles.includes('DATA_ACCESS')) return '#f97316';
   if (roles.includes('CONFIG')) return '#7c3aed';
-  if (roles.includes('MESSAGE_CONSUMER')) return '#0891b2';
-  if (roles.includes('RPC_CLIENT')) return '#db2777';
   return '#64748b';
-}}
+}
 
-function shortName(value) {{
-  const index = value.lastIndexOf('.');
-  return index >= 0 ? value.slice(index + 1) : value;
-}}
+function isCyclic(edge) {
+  return edge.data('type') === 'EXTENDS' || edge.data('type') === 'IMPLEMENTS'
+    ? false : edge.data('weight') > 5;
+}
 
-function renderSummary() {{
-  document.getElementById('repo-title').textContent = atlas.repository ? atlas.repository.alias : 'multi-repo';
-  const summary = [
-    ['实体', atlas.entities.length],
-    ['关系', atlas.relationships.length],
-    ['模块', atlas.modules ? atlas.modules.length : 0],
-    ['环', atlas.metrics && atlas.metrics.cycles ? atlas.metrics.cycles.length : 0],
-    ['热点', atlas.metrics && atlas.metrics.hotspots ? atlas.metrics.hotspots.length : 0],
-  ];
-  document.getElementById('summary').innerHTML = summary.map(([k, v]) => `<div class="metric"><span>${{k}}</span><strong>${{v}}</strong></div>`).join('');
-}}
+const tooltip = document.getElementById('tooltip');
+cy?.on('mouseover', 'node', e => {
+  tooltip.style.display = 'block';
+  tooltip.style.left = e.originalEvent.clientX + 10 + 'px';
+  tooltip.style.top = e.originalEvent.clientY + 10 + 'px';
+});
+cy?.on('mouseout', 'node', () => { tooltip.style.display = 'none'; });
 
-function topologyElements() {{
-  const degree = new Map();
-  atlas.relationships.forEach(edge => degree.set(edge.target, (degree.get(edge.target) || 0) + 1));
-  const nodes = atlas.entities.map(entity => ({{
-    data: {{
-      id: entity.id,
-      label: shortName(entity.fqn),
-      roles: entity.roles.join(','),
-      weight: 20 + Math.min(60, (degree.get(entity.id) || 0) * 4),
-      color: roleColor(entity.roles)
-    }}
-  }}));
-  const edges = atlas.relationships.slice(0, 1000).map((edge, index) => ({{
-    data: {{
-      id: 'e' + index,
-      source: edge.source,
-      target: edge.target,
-      label: edge.type,
-      weight: Math.max(1, Math.min(8, edge.weight)),
-      color: edge.cycle ? '#dc2626' : '#94a3b8'
-    }}
-  }}));
-  return nodes.concat(edges);
-}}
+// === 视图切换 ===
+let currentView = 'topo';
+function switchView(view) {
+  document.querySelectorAll('#stage > div, #stage > svg')
+    .forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.views button')
+    .forEach(b => b.classList.remove('active'));
+  document.getElementById(view).classList.add('active');
+  document.getElementById('btn-' + view).classList.add('active');
 
-let cy;
-function renderTopology() {{
-  cy = cytoscape({{
-    container: document.getElementById('cy'),
-    elements: topologyElements(),
-    style: [
-      {{ selector: 'node', style: {{
-        'background-color': 'data(color)',
-        'label': 'data(label)',
-        'width': 'data(weight)',
-        'height': 'data(weight)',
-        'font-size': 10,
-        'color': '#111827',
-        'text-valign': 'bottom',
-        'text-margin-y': 6
-      }} }},
-      {{ selector: 'edge', style: {{
-        'curve-style': 'bezier',
-        'target-arrow-shape': 'triangle',
-        'line-color': 'data(color)',
-        'target-arrow-color': 'data(color)',
-        'width': 'data(weight)',
-        'label': 'data(label)',
-        'font-size': 8,
-        'text-rotation': 'autorotate'
-      }} }}
-    ],
-    layout: {{ name: 'cose', animate: false, idealEdgeLength: 120, nodeRepulsion: 9000 }}
-  }});
-  cy.on('mouseover', 'node', evt => showTip(evt.renderedPosition, evt.target.data('label') + '<br>' + evt.target.data('roles')));
-  cy.on('mouseout', 'node', hideTip);
-}}
+  if (view === 'topo') loadAtlas();
+  else if (view === 'matrix') renderMatrix();
+  else if (view === 'layers') renderLayers();
+  else if (view === 'hot') renderHotspots();
+}
 
-function renderMatrix() {{
+function updateSummary() {
+  const hotspots = atlas.metrics?.hotspots || [];
+  const cycles = atlas.metrics?.cycles || [];
+  document.getElementById('summary').innerHTML = `
+    <div style="margin-top:20px;font-size:13px;">
+      <p>🔴 环依赖: ${cycles.length} 处</p>
+      <p>🔥 热点类 Top3:</p>
+      ${hotspots.slice(0,3).map(h =>
+        `<p style="font-size:11px;color:#f97316;">· ${h.fqn.split('.').pop()}</p>`
+      ).join('')}
+    </div>
+  `;
+}
+
+function renderMatrix() {
+  // D3.js A/I 矩阵散点图
   const svg = d3.select('#matrix');
   svg.selectAll('*').remove();
-  const width = svg.node().clientWidth;
-  const height = svg.node().clientHeight;
-  const margin = {{top: 28, right: 28, bottom: 44, left: 52}};
-  const metrics = atlas.metrics && atlas.metrics.martin ? atlas.metrics.martin : [];
-  const x = d3.scaleLinear().domain([0,1]).range([margin.left, width - margin.right]);
-  const y = d3.scaleLinear().domain([0,1]).range([height - margin.bottom, margin.top]);
-  svg.append('g').attr('transform', `translate(0,${{height-margin.bottom}})`).call(d3.axisBottom(x));
-  svg.append('g').attr('transform', `translate(${{margin.left}},0)`).call(d3.axisLeft(y));
-  svg.append('line').attr('x1', x(0)).attr('y1', y(1)).attr('x2', x(1)).attr('y2', y(0)).attr('stroke', '#64748b').attr('stroke-dasharray', '6 4');
-  svg.selectAll('circle').data(metrics).enter().append('circle')
-    .attr('cx', d => x(d.abstractness))
-    .attr('cy', d => y(d.instability))
-    .attr('r', d => 8 + Math.min(18, d.ce + d.ca))
-    .attr('fill', d => d.distance > 0.6 ? '#dc2626' : d.distance > 0.3 ? '#f97316' : '#16a34a')
-    .attr('opacity', 0.82)
-    .on('mousemove', (event, d) => showTip({{x:event.clientX, y:event.clientY}}, `${{d.module}}<br>A=${{d.abstractness.toFixed(2)}} I=${{d.instability.toFixed(2)}} D=${{d.distance.toFixed(2)}}`))
-    .on('mouseout', hideTip);
-}}
+  const data = atlas.metrics?.martin || [];
+  const w = svg.node().clientWidth, h = svg.node().clientHeight;
+  const margin = 40;
+  const x = d3.scaleLinear().domain([0,1]).range([margin, w-margin]);
+  const y = d3.scaleLinear().domain([1,0]).range([margin, h-margin]);
 
-function renderLayers() {{
-  const svg = d3.select('#layers');
-  svg.selectAll('*').remove();
-  const width = svg.node().clientWidth;
-  const height = svg.node().clientHeight;
-  const layers = [
-    ['REST_ENTRY', '入口层'],
-    ['BUSINESS_LOGIC', '服务层'],
-    ['DATA_ACCESS', '数据层'],
-    ['CONFIG', '配置层']
-  ];
-  const layerHeight = height / layers.length;
-  layers.forEach(([role, label], i) => {{
-    svg.append('rect').attr('x', 0).attr('y', i * layerHeight).attr('width', width).attr('height', layerHeight - 1).attr('fill', i % 2 ? '#f8fafc' : '#eef2ff');
-    svg.append('text').attr('x', 20).attr('y', i * layerHeight + 30).text(label).attr('font-size', 15).attr('font-weight', 700).attr('fill', '#111827');
-    const nodes = atlas.entities.filter(e => e.roles.includes(role)).slice(0, 80);
-    nodes.forEach((node, j) => {{
-      const x = 150 + (j % 8) * 130;
-      const y = i * layerHeight + 24 + Math.floor(j / 8) * 34;
-      svg.append('rect').attr('x', x).attr('y', y).attr('rx', 4).attr('width', 112).attr('height', 24).attr('fill', roleColor(node.roles));
-      svg.append('text').attr('x', x + 6).attr('y', y + 16).text(shortName(node.fqn).slice(0, 16)).attr('font-size', 10).attr('fill', 'white');
-    }});
-  }});
-}}
+  svg.append('g').call(d3.axisBottom(x)).attr('transform', `translate(0,${h-margin})`);
+  svg.append('g').call(d3.axisLeft(y)).attr('transform', `translate(${margin},0)`);
 
-function renderHotspots() {{
-  const svg = d3.select('#hotspots');
-  svg.selectAll('*').remove();
-  const width = svg.node().clientWidth;
-  const height = svg.node().clientHeight;
-  const hotspots = atlas.metrics && atlas.metrics.hotspots ? atlas.metrics.hotspots : [];
-  const root = d3.hierarchy({{name: 'root', children: hotspots.map(h => ({{name: shortName(h.fqn), value: Math.max(1, h.score), data: h}}))}}).sum(d => d.value);
-  d3.treemap().size([width, height]).padding(2)(root);
-  const color = d3.scaleSequential(d3.interpolateYlOrRd).domain([0, d3.max(hotspots, d => d.score) || 1]);
-  const node = svg.selectAll('g').data(root.leaves()).enter().append('g').attr('transform', d => `translate(${{d.x0}},${{d.y0}})`);
-  node.append('rect').attr('width', d => d.x1 - d.x0).attr('height', d => d.y1 - d.y0).attr('fill', d => color(d.data.value));
-  node.append('text').attr('x', 4).attr('y', 14).text(d => d.data.name).attr('font-size', 11).attr('fill', '#111827');
-  node.on('mousemove', (event, d) => showTip({{x:event.clientX, y:event.clientY}}, `${{d.data.name}}<br>score=${{d.data.value.toFixed(1)}}`)).on('mouseout', hideTip);
-}}
+  // 象限线
+  svg.append('line').attr('x1',x(0.5)).attr('x2',x(0.5))
+     .attr('y1',margin).attr('y2',h-margin).attr('stroke','#334155').attr('stroke-dasharray','4');
+  svg.append('line').attr('x1',margin).attr('x2',w-margin)
+     .attr('y1',y(0.5)).attr('y2',y(0.5)).attr('stroke','#334155').attr('stroke-dasharray','4');
 
-function switchView(name) {{
-  ['topology', 'matrix', 'layers', 'hotspots'].forEach(view => {{
-    document.getElementById('btn-' + view).classList.toggle('active', view === name);
-  }});
-  document.getElementById('cy').classList.toggle('active', name === 'topology');
-  document.getElementById('matrix').classList.toggle('active', name === 'matrix');
-  document.getElementById('layers').classList.toggle('active', name === 'layers');
-  document.getElementById('hotspots').classList.toggle('active', name === 'hotspots');
-  if (name === 'topology' && cy) cy.resize();
-  if (name === 'matrix') renderMatrix();
-  if (name === 'layers') renderLayers();
-  if (name === 'hotspots') renderHotspots();
-}}
+  // 标签
+  svg.append('text').attr('x',margin+5).attr('y',margin+15).attr('fill','#64748b').text('痛苦区');
+  svg.append('text').attr('x',w-margin-50).attr('y',margin+15).attr('fill','#64748b').text('好区');
 
-function showTip(position, html) {{
-  tooltip.style.display = 'block';
-  tooltip.style.left = (position.x + 12) + 'px';
-  tooltip.style.top = (position.y + 12) + 'px';
-  tooltip.innerHTML = html;
-}}
+  // 散点
+  svg.selectAll('circle').data(data).enter()
+    .append('circle')
+    .attr('cx', d => x(d.instability))
+    .attr('cy', d => y(d.abstractness))
+    .attr('r', 6)
+    .attr('fill', d => d.zone === 'pain' ? '#ef4444'
+      : d.zone === 'good' ? '#22c55e'
+      : d.zone === 'useless' ? '#eab308' : '#64748b')
+    .append('title').text(d => `${d.module}\nI=${d.instability.toFixed(2)} A=${d.abstractness.toFixed(2)}`);
+}
 
-function hideTip() {{
-  tooltip.style.display = 'none';
-}}
+function renderLayers() { /* 分层透视图 — Phase 4 实现 */ }
+function renderHotspots() { /* 热力图 — Phase 4 实现 */ }
 
-renderSummary();
-renderTopology();
+// 启动
+loadAtlas();
 </script>
 </body>
-</html>"""
+</html>
 ```
 
-### 4. Mermaid 导出格式
+---
 
-跨仓图：
+## Phase 5 · Agent 化（2 天）
 
-```mermaid
-graph LR
-  repo_order_service["order-service"] -->|COMPILE 4.8| repo_payment_api["payment-api"]
-  repo_order_service -->|RPC_CALLS 2.0| repo_payment_api
-  repo_order_service -->|COMPILE 9.2| repo_common_lib["common-lib"]
-```
-
-模块图：
-
-```mermaid
-graph TB
-  subgraph order_service["order-service"]
-    order_api["order-api"]
-    order_app["order-app"]
-    order_infra["order-infra"]
-  end
-  order_api -->|IMPLEMENTS| order_app
-  order_app -->|INJECTS| order_infra
-```
-
-### 5. 热点热力图 D3.js + TreeMap
-
-数据结构：
+### 5.1 Agent 消费格式
 
 ```json
 {
-  "name": "root",
-  "children": [
+  "format": "atlas-agent-v1",
+  "atlas_version": "1.0.0",
+  "timestamp": "2026-05-29T10:30:00Z",
+  "project": "my-project",
+  "summary": {
+    "total_modules": 12,
+    "total_classes": 3842,
+    "total_relationships": 15600,
+    "cycles": 2,
+    "pain_modules": 4,
+    "architecture_styles": {
+      "layered": 8,
+      "hexagonal": 2,
+      "none": 3
+    }
+  },
+  "modules": [
     {
-      "name": "order-service",
-      "children": [
-        {
-          "name": "src/main/java/com/example/order",
-          "children": [
-            { "name": "OrderFacade.java", "value": 41.7, "fqn": "com.example.order.OrderFacade" }
-          ]
-        }
-      ]
+      "id": "order-service",
+      "role": "business-service",
+      "quality": {"boundary_score": 82, "ai_instability": 0.72},
+      "deps_in": ["common-utils"],
+      "deps_out": ["payment-service", "data-layer"],
+      "hotspots": ["OrderService", "OrderValidator"],
+      "patterns": ["Strategy", "Template Method"]
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "refactor",
+      "target": "legacy-data",
+      "severity": "high",
+      "reason": "SCC=1, A=0.1, I=0.0 → 痛苦区，建议提取接口",
+      "effected_modules": ["order-service", "payment-service"]
     }
   ]
 }
 ```
 
-TreeMap 构造：
-
-```javascript
-function buildHotspotTree(entities, hotspots) {
-  const score = new Map(hotspots.map(h => [h.fqn, h.score]));
-  const root = { name: 'root', children: [] };
-  const repoNode = { name: 'repository', children: [] };
-  root.children.push(repoNode);
-  for (const entity of entities) {
-    const pathParts = entity.sourcePath.split('/');
-    let cursor = repoNode;
-    for (const part of pathParts.slice(0, -1)) {
-      let next = cursor.children.find(child => child.name === part);
-      if (!next) {
-        next = { name: part, children: [] };
-        cursor.children.push(next);
-      }
-      cursor = next;
-    }
-    cursor.children.push({
-      name: pathParts[pathParts.length - 1],
-      value: Math.max(1, score.get(entity.fqn) || 1),
-      fqn: entity.fqn
-    });
-  }
-  return root;
-}
-```
-
-## Phase 5 Agent 化（2 天）
-
-### 1. Hermes Skill 封装方案
-
-目录：
-
-```text
-hermes-skills/java-code-atlas/
-├── SKILL.md
-├── bin/
-│   └── atlas.py
-├── lib/
-│   └── java-code-atlas-analyzer-0.1.0.jar
-├── templates/
-│   ├── graph.html.j2
-│   └── report.md.j2
-└── examples/
-    └── repos.yaml
-```
-
-`SKILL.md`：
-
-```markdown
-# Java Code Atlas
-
-## 触发条件
-
-当用户要求分析 Java 仓库结构、生成架构图谱、查找环依赖、识别热点类、评估模块边界或多仓依赖时使用本 Skill。
-
-## 输入
-
-- 单仓路径：当前目录或用户提供的路径
-- 多仓配置：`repos.yaml`
-- 输出目录：默认 `.atlas/`
-
-## 工作流
-
-1. 运行 `python bin/atlas.py scan <path> -o .atlas`
-2. 读取 `.atlas/atlas-metrics.json`
-3. 对结构性问题直接回答；涉及架构风格和设计模式时读取 `.atlas/atlas-patterns.json`
-4. 返回报告路径、HTML 路径和关键发现
-
-## 输出
-
-- `.atlas/atlas-raw.json`
-- `.atlas/atlas-metrics.json`
-- `.atlas/atlas-patterns.json`
-- `.atlas/report.md`
-- `.atlas/graph.html`
-```
-
-### 2. 自然语言问答的意图识别设计
-
-意图枚举：
-
-| 意图 | 用户表达 | 数据源 | 响应 |
-|---|---|---|---|
-| `SCAN_REPO` | “扫描这个项目” | 文件系统 | 执行全量扫描 |
-| `SHOW_HOTSPOTS` | “哪些类最危险/最值得重构” | `metrics.hotspots` | Top N 热点列表 |
-| `SHOW_CYCLES` | “有没有环依赖” | `metrics.cycles` | SCC 列表和严重度 |
-| `EXPLAIN_MODULE` | “解释某模块结构” | module metrics + relationships | 模块角色、Ca/Ce、边界评分 |
-| `SHOW_ARCHITECTURE` | “是什么架构风格” | `patterns.architecture` | LLM 结构判断 |
-| `SHOW_PATTERNS` | “识别设计模式” | `patterns.designPatterns` | 模式列表和证据 |
-| `EXPORT_VIEW` | “导出 Mermaid/HTML” | renderer | 生成文件路径 |
-
-规则优先，LLM 兜底：
+### 5.2 Hermes Skill 封装
 
 ```python
-def classify_intent(text: str) -> str:
-    normalized = text.lower()
-    if any(word in text for word in ["扫描", "生成图谱", "分析项目"]):
-        return "SCAN_REPO"
-    if any(word in text for word in ["热点", "危险", "重构", "影响最大"]):
-        return "SHOW_HOTSPOTS"
-    if any(word in text for word in ["环依赖", "循环依赖", "SCC"]):
-        return "SHOW_CYCLES"
-    if any(word in text for word in ["架构风格", "分层", "六边形", "CQRS"]):
-        return "SHOW_ARCHITECTURE"
-    if any(word in text for word in ["设计模式", "模式"]):
-        return "SHOW_PATTERNS"
-    if any(word in normalized for word in ["mermaid", "html", "导出"]):
-        return "EXPORT_VIEW"
-    return "EXPLAIN_MODULE"
+# hermes-skill: java-code-atlas
+# 触发条件: cd 到 Java 项目根目录 → 自动检测 config/atlas.yaml
+# 命令: /atlas serve | /atlas scan | /atlas dump
+
+# ~/.hermes/skills/java-code-atlas/SKILL.md 内容：
+"""
+当用户在 Java 项目根目录时，自动检测 config/atlas.yaml 是否存在。
+如果存在，提供以下能力：
+  /atlas serve  → 启动 Web 图谱服务
+  /atlas scan  → 生成一次性报告
+  /atlas dump  → 输出 Agent 消费 JSON
+
+问题示例：
+  "哪些模块需要重构？"       → 查询 pain_modules
+  "支付流程涉及哪些文件？"   → 查询模块依赖链
+  "改 OrderService 会影响什么？" → 查询被依赖关系
+"""
 ```
 
-### 3. 增量更新策略
+---
 
-增量扫描通过文件哈希和关系反向索引实现：
+## 附录 A · 完整目录树
 
-1. 每次扫描保存 `.atlas/cache/files.json`：
-   ```json
-   {
-     "src/main/java/com/example/A.java": {
-       "sha256": "8f14e45fceea167a5a36dedd4bea2543",
-       "entities": ["com.example.A"],
-       "relationships": ["com.example.A|INJECTS|com.example.B"]
-     }
-   }
-   ```
-2. 下次扫描先计算 `.java` 文件 SHA-256。
-3. 新增/变更文件重新解析，删除文件移除对应实体和关系。
-4. 对受影响实体的一跳邻居重算度量；SCC 和 Martin A/I 仍全量重算，因为图规模 5000 类以内重算成本低。
-5. LLM 只对变更实体和受影响模块重新推理，保留未变更批次结果。
-
-```python
-def incremental_plan(current_files: dict[str, str], cache: dict) -> dict[str, list[str]]:
-    cached_files = cache.get("files", {})
-    added_or_changed = [
-        path for path, sha in current_files.items()
-        if path not in cached_files or cached_files[path]["sha256"] != sha
-    ]
-    deleted = [path for path in cached_files if path not in current_files]
-    affected_entities = set()
-    for path in added_or_changed + deleted:
-        affected_entities.update(cached_files.get(path, {}).get("entities", []))
-    return {
-        "parse_files": added_or_changed,
-        "delete_files": deleted,
-        "affected_entities": sorted(affected_entities),
-    }
 ```
-
-## 附录 A：完整目录树
-
-```text
 java-code-atlas/
+├── .gitignore
 ├── README.md
-│   项目定位、核心理念、快速开始和路线图。
 ├── DESIGN.md
-│   五层数据模型、度量公式、模式识别和可视化设计。
-├── docs/
-│   ├── IMPLEMENTATION_PLAN.md
-│   │   本实施方案。
-│   ├── fingerprint-spec.md
-│   │   实体指纹字段、角色推断和兼容性版本说明。
-│   ├── relationship-types.md
-│   │   9 种关系类型、权重和证据字段定义。
-│   ├── metrics.md
-│   │   Martin A/I、SCC、热点、边界评分公式。
-│   └── multi-repo-strategy.md
-│       多仓配置、跨仓依赖映射和融合策略。
-├── java-analyzer/
-│   ├── pom.xml
-│   │   JavaParser、JGraphT、Jackson、picocli 依赖和 shade 打包配置。
-│   └── src/
-│       ├── main/java/io/github/javacodeatlas/cli/
-│       │   └── AtlasCli.java：Java CLI 入口，提供 analyze/metrics 子命令。
-│       ├── main/java/io/github/javacodeatlas/analyze/
-│       │   ├── StaticAnalyzer.java：扫描源码并生成 raw JSON。
-│       │   ├── AnalyzerOptions.java：CLI 参数模型。
-│       │   ├── FingerprintExtractor.java：实体指纹提取。
-│       │   ├── RelationshipExtractor.java：9 种关系提取。
-│       │   ├── RoleClassifier.java：注解到架构角色映射。
-│       │   ├── RepositoryScanner.java：识别 Maven/Gradle 仓库坐标。
-│       │   └── ModuleScanner.java：聚合模块指纹。
-│       ├── main/java/io/github/javacodeatlas/metrics/
-│       │   ├── GraphBuilder.java：类图和模块图构建。
-│       │   ├── DegreeMetrics.java：入度/出度计算。
-│       │   ├── TarjanScc.java：强连通分量和环检测。
-│       │   ├── MartinMetrics.java：A/I 矩阵。
-│       │   ├── HotspotScorer.java：热点评分。
-│       │   └── BoundaryQualityScorer.java：模块边界质量评分。
-│       ├── main/java/io/github/javacodeatlas/model/
-│       │   ├── AtlasDocument.java：顶层 JSON 文档。
-│       │   ├── EntityFingerprint.java：类/接口/枚举/记录指纹。
-│       │   ├── Relationship.java：关系边。
-│       │   ├── RelationshipType.java：关系枚举和权重。
-│       │   ├── ModuleFingerprint.java：模块聚合视图。
-│       │   └── MetricsDocument.java：度量结果文档。
-│       └── main/java/io/github/javacodeatlas/output/
-│           ├── MermaidGenerator.java：Mermaid 导出。
-│           └── MarkdownReportGenerator.java：Markdown 报告生成。
-├── src/
-│   ├── llm/
-│   │   ├── deepseek_client.py：DeepSeek API 封装。
-│   │   ├── prompts.py：架构风格和设计模式 Prompt。
-│   │   └── pattern_pipeline.py：批量推理与结果合并。
-│   ├── multi_repo/
-│   │   ├── config.py：YAML 配置读取和 schema 校验。
-│   │   ├── dependency_tree.py：Maven/Gradle 依赖树解析。
-│   │   └── resolver.py：跨仓依赖映射。
-│   └── visualize/
-│       ├── html_renderer.py：Cytoscape/D3 单文件 HTML。
-│       ├── mermaid_renderer.py：仓级和模块级 Mermaid。
-│       └── report_renderer.py：Markdown 报告。
-├── templates/
-│   ├── graph.html.j2
-│   │   HTML 视图模板，内嵌 Cytoscape.js 与 D3.js。
-│   └── report.md.j2
-│       架构报告模板。
-├── tests/
-│   ├── fixtures/
-│   │   ├── spring-layered/：分层 Spring Boot 示例。
-│   │   ├── cyclic-modules/：跨模块环依赖示例。
-│   │   ├── patterns/：15 种设计模式最小代码样本。
-│   │   └── multi-repo/：三仓依赖示例。
-│   ├── test_atlas_cli.py：Python CLI 集成测试。
-│   ├── test_deepseek_pipeline.py：LLM 批处理和 schema 校验测试。
-│   └── test_multi_repo_resolver.py：跨仓映射测试。
+├── IMPLEMENTATION_PLAN.md          # 本文件
 ├── requirements.txt
-│   Python 依赖：requests、pyyaml、jinja2、jsonschema、pytest。
-└── atlas.py
-    Python 顶层 CLI：scan、scan-multi、render、ask。
+│
+├── config/                         # 🔧 所有可配置（一个文件夹）
+│   ├── atlas.yaml.example
+│   ├── sources.yaml.example
+│   └── model.yaml.example
+│
+├── atlas.py                        # CLI 入口
+├── src/                            # Python 编排
+│   ├── __init__.py
+│   ├── cli.py                      # click: serve/scan/dump/config
+│   ├── config.py                   # ConfigLoader (YAML + env vars)
+│   ├── orchestrator.py             # JavaAnalyzer (subprocess 调用 JAR)
+│   ├── llm/
+│   │   ├── __init__.py
+│   │   ├── backend.py              # LlmBackend (OpenAI 兼容抽象)
+│   │   ├── pipeline.py             # LlmPipeline (批量推理)
+│   │   └── prompts.py              # ARCHITECTURE_PROMPT, DESIGN_PATTERN_PROMPT
+│   ├── web/
+│   │   ├── __init__.py
+│   │   ├── server.py               # AtlasServer (aiohttp)
+│   │   ├── watcher.py              # FileWatcher (watchdog)
+│   │   └── websocket.py            # WebSocket 增量推送
+│   └── render/
+│       ├── __init__.py
+│       ├── html.py                 # HTML 渲染器
+│       ├── mermaid.py              # Mermaid 生成
+│       └── markdown.py             # Markdown 报告
+│
+├── java-analyzer/                  # Java 分析器 (Maven 项目)
+│   ├── pom.xml
+│   └── src/main/java/io/github/javacodeatlas/
+│       ├── AnalyzerCli.java        # Picocli CLI 入口
+│       ├── extract/
+│       │   ├── FingerprintExtractor.java
+│       │   ├── RelationshipExtractor.java
+│       │   └── AnnotationRoleMapper.java
+│       ├── metrics/
+│       │   ├── GraphAnalyzer.java  # 图构建+SCC+A/I+热点+边界
+│       │   └── MetricsCli.java
+│       ├── model/
+│       │   ├── AtlasDocument.java
+│       │   ├── EntityFingerprint.java
+│       │   ├── Relationship.java
+│       │   └── ModuleFingerprint.java
+│       └── util/
+│           ├── MavenModuleResolver.java
+│           └── JdkVersionDetector.java
+│
+├── templates/
+│   ├── graph.html.j2               # Cytoscape.js 交互式模板
+│   ├── report.md.j2
+│   └── mermaid.mmd.j2
+│
+└── tests/
+    ├── test_java/
+    │   ├── FingerprintExtractorTest.java
+    │   ├── RelationshipExtractorTest.java
+    │   ├── AnnotationRoleMapperTest.java
+    │   ├── MavenModuleResolverTest.java
+    │   ├── JdkVersionDetectorTest.java
+    │   ├── GraphAnalyzerTest.java
+    │   └── ModelSerializationTest.java
+    └── test_python/
+        ├── test_config.py
+        ├── test_orchestrator.py
+        ├── test_llm_pipeline.py
+        ├── test_web_server.py
+        └── test_mermaid_export.py
 ```
 
-## 附录 B：测试策略
+---
+
+## 附录 B · 测试策略
 
 ### Java 单元测试
 
-| 测试类 | 用例 |
-|---|---|
-| `FingerprintExtractorTest` | 普通类、接口、抽象类、枚举、record、注解类型的 kind 提取 |
-| `FingerprintExtractorTest` | getter/setter/constructor/public/private/protected/static 计数 |
-| `FingerprintExtractorTest` | `@Transactional`、`@Bean`、`@Override` 计数 |
-| `RelationshipExtractorTest` | `extends` 提取为 `EXTENDS` |
-| `RelationshipExtractorTest` | `implements` 提取为 `IMPLEMENTS` |
-| `RelationshipExtractorTest` | field injection 和 constructor injection 提取为 `INJECTS` |
-| `RelationshipExtractorTest` | `@EventListener`、`@KafkaListener` 提取为 `LISTENS` |
-| `RelationshipExtractorTest` | `@Bean` 返回类型提取为 `CONFIGURES` |
-| `RelationshipExtractorTest` | `@Aspect` + `@Around` 提取为 `ADVISED_BY` |
-| `RelationshipExtractorTest` | `@FeignClient` 和 `*Client` 字段提取为 `RPC_CALLS` |
-| `RelationshipExtractorTest` | 类级/方法级 `@Transactional` 提取为 `TX_BOUNDARY` |
-| `RelationshipExtractorTest` | `new`、局部变量和有 scope 的方法调用提取为 `INVOKES` |
-| `TarjanSccTest` | 无环图返回空 |
-| `TarjanSccTest` | 二节点互相依赖返回一个 minor SCC |
-| `TarjanSccTest` | 六节点环返回 severe SCC |
-| `MartinMetricsTest` | Ca/Ce/I/A/D 公式精确计算 |
-| `BoundaryQualityScorerTest` | 接口比例、环依赖、public 暴露评分边界值 |
+| 测试类 | 用例数 | 覆盖 |
+|--------|:-----:|------|
+| `FingerprintExtractorTest` | 8 | 类/接口/抽象/枚举/记录/注解类型 + getter/setter/构造器计数 |
+| `RelationshipExtractorTest` | 9 | 9 种关系类型各自提取正确 |
+| `AnnotationRoleMapperTest` | 7 | 直接注解 + 组合注解解包 + 注解继承链 |
+| `MavenModuleResolverTest` | 4 | 单模块/多模块/pom聚合过滤/Gradle项目fallback |
+| `JdkVersionDetectorTest` | 4 | pom release/source/gradle/.java-version 各优先级 |
+| `GraphAnalyzerTest` | 6 | 图构建/入度出度/SCC/AI矩阵/热点/边界评分 |
+| `ModelSerializationTest` | 2 | JSON序列化/反序列化 + 版本号校验 |
 
 ### Python 单元测试
 
-| 测试文件 | 用例 |
-|---|---|
-| `test_deepseek_pipeline.py` | 5000 类生成 100 个 batch |
-| `test_deepseek_pipeline.py` | LLM 响应必须符合 JSON Schema |
-| `test_deepseek_pipeline.py` | API 5xx 重试，4xx 直接失败 |
-| `test_multi_repo_resolver.py` | `groupId:artifactId` exact 匹配 |
-| `test_multi_repo_resolver.py` | group prefix 最长前缀匹配 |
-| `test_multi_repo_resolver.py` | `@FeignClient(name)` 映射到仓库 |
-| `test_multi_repo_resolver.py` | 同仓依赖不生成跨仓边 |
-| `test_visualize.py` | HTML 中包含四个视图容器和 atlas JSON |
-| `test_visualize.py` | Mermaid 输出可解析，节点 ID 不含非法字符 |
+| 测试文件 | 用例数 | 覆盖 |
+|---------|:-----:|------|
+| `test_config.py` | 5 | 加载/环境变量解析/验证/缺失字段报错/多文件合并 |
+| `test_orchestrator.py` | 3 | JAR调用/版本校验/错误处理 |
+| `test_llm_pipeline.py` | 4 | 批量分片/semaphore/重试/Mock响应schema验证 |
+| `test_web_server.py` | 3 | 路由/JSON响应/WebSocket连接 |
+| `test_mermaid_export.py` | 2 | 合法Mermaid语法/模块图生成 |
 
 ### 集成测试
 
-1. `spring-layered` fixture：
-   - 预期识别 REST_ENTRY、BUSINESS_LOGIC、DATA_ACCESS。
-   - 依赖方向 Controller -> Service -> Repository。
-   - 无 SCC 环。
-2. `cyclic-modules` fixture：
-   - 预期模块图存在一个 SCC。
-   - 环严重度按节点数正确。
-   - 相关边在 HTML 中标红。
-3. `patterns` fixture：
-   - 15 个模式样本分别进入 LLM 批处理。
-   - 使用离线假响应验证 schema 合并逻辑。
-4. `multi-repo` fixture：
-   - Maven dependency tree 映射出 COMPILE 边。
-   - FeignClient 映射出 RPC_CALLS 边。
-   - Mermaid 跨仓图包含三仓节点。
+1. `spring-layered` fixture → 分层架构正确识别
+2. `cyclic-modules` fixture → SCC 检测 + HTML 红色边
+3. `patterns` fixture → 15 个模式样本 LLM 识别
+4. `multi-repo` fixture → 跨仓依赖 COMPILE + RPC_CALLS
 
-### 验收命令
+### CI 验收
 
 ```bash
 mvn -f java-analyzer/pom.xml test
 pytest -q
-python atlas.py scan tests/fixtures/spring-layered -o .atlas-test/spring-layered
-python atlas.py scan-multi tests/fixtures/multi-repo/repos.yaml -o .atlas-test/multi-repo
+python atlas.py scan tests/fixtures/spring-layered -o .atlas-test/
+python atlas.py serve --no-browser --port 18765 &  # 后台启动
+curl -s http://127.0.0.1:18765/api/status | grep '"status":"idle"'
 ```
 
-## 附录 C：性能基准
+---
 
-目标硬件：8 核 CPU、16GB 内存、JDK 17、Python 3.11。
+## 附录 C · 性能基准
 
-| 规模 | Java 文件 | 类/接口 | 关系边 | 解析时间 | 度量时间 | 峰值内存 |
-|---|---:|---:|---:|---:|---:|---:|
-| 小型仓 | 100 | 180 | 600 | 2-4 秒 | <1 秒 | 512MB |
-| 中型仓 | 1000 | 1800 | 8000 | 18-35 秒 | 2-5 秒 | 1.5GB |
-| 大型仓 | 3000 | 5000 | 25000 | 60-120 秒 | 8-15 秒 | 2.5GB |
-| 多仓 | 8000 | 12000 | 70000 | 4-8 分钟 | 30-60 秒 | 4GB |
+### 目标
 
-优化策略：
+| 规模 | Java 文件 | 类/接口 | 解析 | 度量 | 内存 |
+|------|:---:|:---:|------|------|:---:|
+| 小型 | 100 | 180 | <5s | <1s | <512MB |
+| 中型 | 1000 | 1800 | <45s | <8s | <2GB |
+| 大型 | 3000 | 5000 | <120s | <15s | <3GB |
+| 多仓 | 8000 | 12000 | <8min | <60s | <5GB |
 
-- AST 解析按文件并行，线程数默认 `min(availableProcessors, 8)`。
-- JSON 输出一次性写文件；5000 类以内不需要流式写。
-- 关系提取先在文件内聚合，再全局聚合，减少边对象数量。
-- Symbol solver 默认关闭深度类型解析；只在 `--resolve-symbols` 开启，避免大型 Maven 项目下载依赖导致扫描不稳定。
-- SCC 和度量在内存图上全量计算；5000 类、25000 边的 Tarjan 复杂度 `O(V + E)`，目标 3 秒内完成。
-- LLM 批处理并发数默认 2，避免触发限流；API 失败批次可重试，不影响 L1-L3 结果。
+### 优化
 
-性能验收阈值：
-
-```text
-1000 个 Java 文件：analyze <= 45 秒，metrics <= 8 秒，峰值内存 <= 2GB
-5000 个实体：HTML 文件 <= 15MB，浏览器首屏渲染 <= 5 秒
-跨仓 10 个仓：总扫描 <= 10 分钟，跨仓解析 <= 30 秒
-```
+- AST 解析按文件并行，线程数 = min(CPU核数, 8)
+- JSON 输出一次性写文件
+- Symbol solver 默认关闭（`--resolve-symbols` 开启），避免下载 Maven 依赖
+- HTML 数据外部加载，单文件 <100KB
+- LLM 批处理并发数 = 2，避免限流
+- Watch 增量只重扫变更文件，不重建全图

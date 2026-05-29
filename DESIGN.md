@@ -1,533 +1,400 @@
-# Java Code Atlas — 完整设计文档
+# Java Code Atlas — 设计文档 v0.2
 
-> 版本：v0.1.0 · 2026-05-29 · 郭启涵
-
----
-
-## 目录
-
-1. [设计哲学](#1-设计哲学)
-2. [数据模型](#2-数据模型)
-3. [提取层详解](#3-提取层详解)
-4. [度量层详解](#4-度量层详解)
-5. [模式识别层](#5-模式识别层)
-6. [多仓融合策略](#6-多仓融合策略)
-7. [可视化方案](#7-可视化方案)
-8. [技术选型](#8-技术选型)
-9. [实现路线图](#9-实现路线图)
-10. [关键决策记录](#10-关键决策记录)
+> 多仓 Java Spring 代码结构图谱 · 人读优先 · Agent 兼容
+>
+> ![架构](https://img.shields.io/badge/arch-v0.2-blue)
+> ![阶段](https://img.shields.io/badge/stage-design-red)
 
 ---
 
-## 1. 设计哲学
+## 0. 核心决策
 
-### 1.1 去业务化的本质
-
-**不是「忽略业务词」，而是「用结构特征替代语义命名」。**
-
-```
-业务命名（不可靠，不做）：
-  "订单模块" → 但可能这个类改名叫 OrderModule
-  "支付服务" → 但可能 PaymentService 也不处理支付
-
-结构指纹（数学事实，可靠）：
-  "高入度·SpringBoot·REST入口·依赖3个内部模块·事务边界·JPA持久化"
-```
-
-### 1.2 三层分离原则
-
-| 层 | 做什么 | 用什么 | 为什么分离 |
-|----|--------|--------|-----------|
-| L1-L3 数学事实层 | AST解析 + 图计算 + 度量 | 硬编码规则 | 可靠性——数学不需要LLM |
-| L4 语义推断层 | 模式识别 + 中文解释 | LLM (DeepSeek) | LLM只做它擅长的事 |
-| L5 可视化层 | 同一份数据多视角投射 | Cytoscape.js | 不同角色看不同的图 |
-
-### 1.3 核心命题
-
-**不看方法名和注释，能从代码结构本身推断出什么？**
-
-答案：
-- ✅ 架构风格（分层/六边形/CQRS）
-- ✅ 设计模式（从类结构指纹识别）
-- ✅ 依赖健康度（环依赖/神模块/孤儿模块）
-- ✅ 模块边界质量（接口比/依赖方向）
-- ❌ 业务意图（这个 Agent 只做代码结构，不做业务语义）
+| 决策 | 选择 | 理由 |
+|------|------|------|
+| **人读 vs Agent 读** | Phase 1-4 先做人读（HTML报告）| 用户原话：「先输出给人看的，后续再弄输出给 agent 看」 |
+| **配置位置** | 全部放 `config/` 目录 | 用户要求「可配置的文件尽量放到一个文件夹下面」 |
+| **多代码目录** | 默认 Maven 多模块，支持独立多项目 | 最常见 Spring 项目形态 |
+| **输出方式** | `atlas serve` — 本地 Web + 浏览器 | 持续迭代场景的最优体验 |
+| **Watch 模式** | 内置文件监听 + WebSocket 推送 | 改代码立即可见图谱变化 |
+| **语言** | Java(解析) + Python(编排) | 不引入 Rust——瓶颈在 I/O 不在 CPU |
+| **Java 解析器** | JavaParser (JVM) | 注解/泛型/类型推断比 tree-sitter 强太多 |
 
 ---
 
-## 2. 数据模型
-
-### 2.1 五层架构
+## 1. 项目结构
 
 ```
-L5 · 图谱投影层  ─  交互式可视化 + 多视角切换
-                    依赖拓扑图 / A/I散点图 / 分层透视图 / 热点热力图
-
-L4 · 模式识别层  ─  LLM Agent
-                    架构风格检测 / 设计模式识别 / 模块边界质量评估
-
-L3 · 度量计算层  ─  经典软件度量
-                    Ce/Ca/I/A/D / 环复杂度 / 热点评分 / SCC环检测
-
-L2 · 关系提取层  ─  JavaParser + 注解分析
-                    9种关系：EXTENDS/INVOKES/IMPLEMENTS/INJECTS/LISTENS/
-                    ADVISED_BY/CONFIGURES/RPC_CALLS/TX_BOUNDARY
-
-L1 · 实体提取层  ─  JavaParser AST
-                    类/接口/抽象类/枚举/注解/记录/方法
+java-code-atlas/
+├── config/                         # 所有可配置文件（一个文件夹）
+│   ├── atlas.yaml                  # 主配置
+│   ├── model.yaml                  # LLM 模型配置
+│   └── sources.yaml                # 代码源目录配置
+│
+├── java-analyzer/                  # Java 分析器（Maven 项目）
+│   ├── pom.xml
+│   └── src/main/java/io/github/javacodeatlas/
+│       ├── AnalyzerCli.java        # CLI 入口（analyze / metrics 两个子命令）
+│       ├── extract/
+│       │   ├── FingerprintExtractor.java
+│       │   ├── RelationshipExtractor.java
+│       │   └── AnnotationRoleMapper.java
+│       ├── metrics/
+│       │   ├── GraphBuilder.java
+│       │   ├── TarjanScc.java
+│       │   ├── MartinMetrics.java
+│       │   ├── HotspotScorer.java
+│       │   └── BoundaryScorer.java
+│       ├── model/
+│       │   ├── AtlasDocument.java       # 顶层 JSON schema（含版本号）
+│       │   ├── EntityFingerprint.java
+│       │   ├── Relationship.java
+│       │   └── ModuleFingerprint.java
+│       └── util/
+│           ├── MavenModuleResolver.java  # NEW: 多模块识别
+│           └── JdkVersionDetector.java   # NEW: JDK 版本检测
+│
+├── atlas.py                        # Python CLI 入口
+├── src/                            # Python 编排逻辑
+│   ├── __init__.py
+│   ├── cli.py                      # click 命令组
+│   ├── config.py                   # 配置加载/验证
+│   ├── orchestrator.py             # 扫描编排
+│   ├── llm/
+│   │   ├── __init__.py
+│   │   ├── backend.py              # LLM 后端抽象（支持任意 OpenAI 兼容 API）
+│   │   ├── pipeline.py             # 批量推理管线
+│   │   └── prompts.py              # Prompt 模板
+│   ├── web/
+│   │   ├── __init__.py
+│   │   ├── server.py               # aiohttp Web 服务器
+│   │   ├── watcher.py              # watchdog 文件监听
+│   │   └── websocket.py            # WebSocket 推送
+│   └── render/
+│       ├── __init__.py
+│       ├── html.py                 # HTML 渲染器（Cytoscape.js）
+│       ├── mermaid.py              # Mermaid 生成器
+│       └── markdown.py             # Markdown 报告
+│
+├── templates/                      # Jinja2 模板
+│   ├── graph.html.j2               # 交互式图谱 HTML（数据外部加载）
+│   ├── report.md.j2                # Markdown 报告模板
+│   └── mermaid.mmd.j2              # Mermaid 模板
+│
+├── tests/
+│   ├── test_java/                  # Java 单元测试
+│   └── test_python/                # Python 单元测试
+│
+├── requirements.txt
+├── DESIGN.md                       # 本文件
+├── IMPLEMENTATION_PLAN.md          # 实施方案
+└── README.md
 ```
 
-### 2.2 数据流
-
-```
-.java 源码
-  │
-  ▼
-JavaParser → AST
-  │
-  ├── L1: 实体指纹 (class/method level)
-  │      · 类型/修饰符/注解/泛型/LOC/环复杂度
-  │
-  ├── L2: 关系提取
-  │      · 调用/继承/注入/事件/切面/RPC
-  │      · 边权重计算
-  │
-  ├── L3: 图计算 + 度量
-  │      · 入度/出度/环检测/热点
-  │      · A/I矩阵
-  │
-  ├── L4: LLM批量推理
-  │      · 架构风格检测
-  │      · 设计模式识别
-  │      · 模块边界评估
-  │
-  └── L5: 渲染输出
-         · Cytoscape.js HTML
-         · Mermaid 代码块
-         · 结构化 JSON
-```
+**为什么有些配置不在 config/ 里（特殊说明）：**
+- `requirements.txt` → Python 项目标准，放根目录（pip 约定）
+- `pom.xml` → Maven 项目标准，放 `java-analyzer/` 下（Maven 约定）
+- `.gitignore` → Git 标准，放根目录（Git 约定）
+- `templates/` → 不是配置，是模板文件，放独立目录
 
 ---
 
-## 3. 提取层详解
+## 2. 配置系统
 
-### 3.1 实体指纹
+### 2.1 `config/atlas.yaml` — 主配置
 
-每个 Java 类提取以下结构指纹，**不关心类名和方法名的业务含义**：
+```yaml
+# Java Code Atlas 主配置 v1
+version: 1
+
+project:
+  name: "my-project"                  # 项目名（用于报告标题）
+
+sources:
+  config_file: "config/sources.yaml"  # 源码目录配置（可内联可引用外部文件）
+
+java:
+  # JDK 版本：可显式指定、或留空自动检测
+  jdk_version: ""                     # "8" | "11" | "17" | "21" | ""=自动
+  maven_home: ""                      # Maven 安装路径，""=从 PATH 找
+  maven_args: ""                      # 额外 Maven 参数，如 "-s /path/to/settings.xml"
+
+llm:
+  config_file: "config/model.yaml"    # 模型配置（可内联可引用外部文件）
+  enabled: true                       # false=跳过 L4 模式识别层
+
+output:
+  dir: ".atlas/output"                # 输出目录
+  formats: ["html", "md", "mmd", "json"]
+  human_first: true                   # true=优先生成人读格式
+
+serve:
+  host: "127.0.0.1"
+  port: 8765
+  watch: true                         # 启动文件监听
+  watch_dirs: []                      # 额外监听目录，空=监听 sources 里的所有目录
+  open_browser: true                  # 自动打开浏览器
+
+cache:
+  dir: ".atlas/cache"
+  ttl_hours: 24                       # 缓存有效期
+
+logging:
+  level: "info"                       # debug/info/warn/error
+  file: ".atlas/atlas.log"
+```
+
+### 2.2 `config/sources.yaml` — 代码源目录
+
+```yaml
+# 源码目录配置 v1
+version: 1
+
+# 模式1：Maven 多模块（推荐）
+type: maven-multi-module
+root: "/home/user/workspace/my-spring-project"
+modules: []                           # 空=自动扫描 pom.xml <modules>
+# modules: ["service-a", "service-b"] # 或显式列出
+
+# 模式2：独立多项目
+# type: multi-project
+# projects:
+#   - path: "/home/user/project-a"
+#     role: business-service          # 仓库角色（可选）
+#   - path: "/home/user/project-b"
+#     role: common-lib
+
+# 忽略目录（支持 glob）
+exclude:
+  - "**/target/**"
+  - "**/node_modules/**"
+  - "**/.git/**"
+  - "**/test/**"                      # 正式分析时可排除测试
+```
+
+**Maven 多模块自动发现逻辑**：
+
+```
+1. 读 root/pom.xml → 找 <modules> 标签
+2. 对每个 module，找 module/pom.xml → 找 <packaging>
+3. 过滤掉 type=pom 的聚合模块（不包含 Java 源码）
+4. 对每个有效模块，扫描 src/main/java/**/*.java
+5. 汇总所有模块的 class → 统一图谱
+```
+
+### 2.3 `config/model.yaml` — LLM 模型配置
+
+```yaml
+# LLM 模型配置 v1
+version: 1
+
+# 后端类型：openai_compatible | deepseek | openai
+backend: "deepseek"
+
+# 通用配置（所有后端共用）
+model: "deepseek-chat"
+temperature: 0.0                     # 结构性任务用 0
+max_tokens: 4096
+max_concurrency: 2                   # 并发请求数
+batch_size: 50                       # 每批处理的类数量
+retry: 3                             # 失败重试次数
+
+# 端点 & 认证
+endpoint: "https://api.deepseek.com/v1/chat/completions"
+api_key: "${DEEPSEEK_API_KEY}"       # 支持环境变量引用
+headers:                              # 额外 HTTP 头
+  # X-Custom-Header: "value"
+
+# 切换其他后端示例：
+# backend: "openai_compatible"
+# endpoint: "http://192.168.1.100:8080/v1/chat/completions"
+# api_key: "sk-xxx"
+# model: "qwen2.5-72b"
+```
+
+**配置优先级**：`环境变量 > config/model.yaml > 内置默认值`
+
+**为什么模型配置单拆一个文件**：安全隔离。`model.yaml` 包含密钥，可以 `.gitignore` 掉，而 `atlas.yaml` 可以提交到仓库。
+
+---
+
+## 3. 启动方式设计
+
+### 3.1 三种启动模式
+
+| 命令 | 行为 | 适用场景 |
+|------|------|---------|
+| `atlas serve` | 启动 Web 服务 → 扫描 → 渲染 → 浏览器打开 → 监听文件变化 → WebSocket 推送 | **日常开发，边改代码边看图** |
+| `atlas scan` | 一次性扫描 → 生成静态报告 → 退出 | CI/CD、批量分析 |
+| `atlas dump` | 输出纯数据 JSON | 给下游 Agent 消费（Phase 5） |
+
+### 3.2 `atlas serve` 完整流程
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  $ atlas serve                                               │
+│                                                              │
+│  ① 加载 config/atlas.yaml                                    │
+│  ② 加载 config/sources.yaml → 解析多模块                     │
+│  ③ 检测 JDK 版本（从 pom.xml / .java-version / 系统默认）    │
+│  ④ 检查 Maven 可用性（mvn --version）                        │
+│  ⑤ 构建 java-analyzer JAR（如需要）                          │
+│  ⑥ 执行全量扫描 → atlas-raw.json                             │
+│  ⑦ 执行度量计算 → atlas-metrics.json                         │
+│  ⑧ 执行 LLM 模式识别 → atlas-patterns.json  (if enabled)     │
+│  ⑨ 渲染 HTML + JSON 数据文件                                 │
+│  ⑩ 启动 aiohttp 服务器（127.0.0.1:8765）                    │
+│  ⑪ 打开浏览器 → http://127.0.0.1:8765                       │
+│  ⑫ 启动 watchdog 文件监听（watch_dirs）                      │
+│                                                              │
+│  浏览器端：                                                   │
+│  · 首次加载 → 请求 /api/atlas.json → 渲染图谱                │
+│  · WebSocket 连接 → 等待增量更新                             │
+│  · 文件变化 → 增量重扫变更文件 → 局部更新图谱                │
+│  · 浏览器自动刷新受影响的视图                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3.3 Web 服务 API
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 主页面（交互式图谱） |
+| `/api/atlas.json` | GET | 完整图谱数据 |
+| `/api/status` | GET | 扫描状态（scanning/done/error） |
+| `/api/reload` | POST | 手动触发全量重扫 |
+| `/ws` | WS | 增量更新推送 |
+
+### 3.4 Watch 模式增量更新
+
+```python
+# 核心逻辑
+class FileWatcher:
+    def on_modified(self, file_path):
+        if not file_path.endswith('.java'):
+            return
+        # 只重扫变更文件
+        delta = analyzer.scan_files([file_path])
+        # 计算受影响的图节点
+        affected = graph.find_affected_nodes(delta)
+        # 通过 WebSocket 推送增量
+        websocket.broadcast({
+            "type": "incremental",
+            "changed": delta,
+            "affected_nodes": affected
+        })
+```
+
+**前端收到增量后**：Cytoscape.js 只更新受影响节点，不重新渲染整个图。
+
+---
+
+## 4. 数据契约（修复 bug#1）
+
+### 4.1 JSON Schema 版本化
 
 ```json
 {
-  "fqn": "com.example.xxx.OrderServiceImpl",
-  "fingerprint": {
-    "type": "class",
-    "modifiers": ["public"],
-    "roles": ["REST_ENTRY", "BUSINESS_LOGIC", "TRANSACTIONAL"],
-    "extends": ["AbstractBaseService"],
-    "implements": ["OrderService", "InitializingBean"],
-    "methods": 23,
-    "public_methods": 8,
-    "getters": 5,
-    "setters": 3,
-    "constructors": 2,
-    "overrides": 3,
-    "injected_deps": 4,
-    "constructor_injection": true,
-    "field_injection": false,
-    "loc": 342,
-    "avg_method_length": 14.8,
-    "max_method_length": 67,
-    "cyclomatic_complexity_max": 12,
-    "nested_depth_max": 4,
-    "type_params": 1,
-    "wildcard_usage": 3
-  }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AtlasDocument",
+  "version": "1.0.0",
+  "atlas": {
+    "version": "1.0.0",
+    "generated_at": "2026-05-29T10:30:00Z",
+    "project": "my-project"
+  },
+  "modules": [...],
+  "entities": [...],
+  "relationships": [...]
 }
 ```
 
-### 3.2 注解→角色映射表
+**版本约束**：Java 端输出时写入 `atlas.version`，Python 端读取时校验。版本不匹配 → 报错 + 提示重建 JAR。
 
-角色的推断**只依赖注解，不依赖类名**：
-
-| 注解 | 推断角色 | 说明 |
-|------|---------|------|
-| `@RestController` / `@Controller` | `REST_ENTRY` | HTTP 请求入口 |
-| `@Service` / `@Component` | `BUSINESS_LOGIC` | 业务逻辑 |
-| `@Repository` | `DATA_ACCESS` | 数据访问 |
-| `@Configuration` | `CONFIG` | 配置类 |
-| `@Transactional` | `TRANSACTIONAL` | 事务边界 |
-| `@KafkaListener` / `@RabbitListener` | `MESSAGE_CONSUMER` | 消息消费者 |
-| `@Scheduled` | `SCHEDULED_TASK` | 定时任务 |
-| `@FeignClient` | `RPC_CLIENT` | 远程调用客户端 |
-| `@Aspect` | `ASPECT` | AOP 切面 |
-| `@ControllerAdvice` | `GLOBAL_ADVICE` | 全局异常处理 |
-| `@Entity` / `@Document` | `PERSISTENCE_MODEL` | 持久化模型 |
-| 无框架注解 + `getXxx/setXxx` | `DTO` | 数据传输对象 |
-| 无框架注解 + `static` 方法为主 | `UTIL` | 工具类 |
-
-### 3.3 9种关系类型
-
-```
-┌──────────────────┬─────────────────────────────────┬──────┐
-│ 关系类型          │ Java 特征                        │ 权重  │
-├──────────────────┼─────────────────────────────────┼──────┤
-│ EXTENDS          │ class B extends A               │ 1.0  │
-│ INVOKES          │ 方法体内调用其他类的方法          │ 1.0  │
-│ IMPLEMENTS       │ class B implements A            │ 0.8  │
-│ INJECTS          │ @Autowired / @Resource           │ 0.6  │
-│ LISTENS          │ @EventListener / @KafkaListener  │ 0.3  │
-│ ADVISED_BY       │ @Aspect 切面拦截                  │ 0.1  │
-│ CONFIGURES       │ @Bean 方法声明                    │ 0.3  │
-│ RPC_CALLS        │ @FeignClient                     │ 0.5  │
-│ TX_BOUNDARY      │ @Transactional 方法              │ 0.2  │
-└──────────────────┴─────────────────────────────────┴──────┘
-```
-
-**边权重公式**：
-```
-边权重 = 调用次数 × 关系类型系数
-```
-
-**边不标注方法名**——不关心「调用了 createOrder()」，只关心「存在调用关系」和「关系的性质」。
-
-### 3.4 模块指纹
-
-Maven 模块或 Gradle 子项目的聚合视图：
+### 4.2 `module` 字段精确定义（修复 bug#2）
 
 ```json
 {
-  "module": ":order-service",
-  "type": "executable-jar",
-  "artifact_id": "order-service",
-  "group_id": "com.example",
-  "fingerprint": {
-    "classes": 127,
-    "interfaces": 18,
-    "abstract_classes": 7,
-    "enums": 12,
-    "annotations": 4,
-    "records": 0,
-    "internal_deps": 3,
-    "external_deps": 23,
-    "test_classes": 42,
-    "test_ratio": 0.33,
-    "architecture_roles": {
-      "REST_ENTRY": 5,
-      "BUSINESS_LOGIC": 12,
-      "DATA_ACCESS": 8,
-      "CONFIG": 3,
-      "MESSAGE_CONSUMER": 2,
-      "SCHEDULED_TASK": 1,
-      "DTO": 15,
-      "UTIL": 6
-    }
-  }
+  "module": "order-service",           // Maven/Gradle 模块名（artifact-id）
+  "module_path": "order-service/src/main/java",  // 模块源码根路径
+  "java_package": "com.example.order", // Java package（二级聚类用）
+}
+```
+
+**三级聚合**：`module(artifact) → java_package → class`，不再混淆 module 和 package。
+
+### 4.3 注解角色映射补全（修复 bug#3、#9）
+
+```java
+// 新增：组合注解的解包
+@SpringBootApplication → 自动识别为 [CONFIG, COMPONENT_SCAN]
+@RestController → REST_ENTRY + @Controller + @ResponseBody
+@Repository → DATA_ACCESS + @Component
+
+// 新增：注解继承链
+if (annotation.isMetaAnnotatedWith("org.springframework.stereotype.Component")) {
+    roles.add("SPRING_BEAN");
 }
 ```
 
 ---
 
-## 4. 度量层详解
+## 5. 可视化（修复 bug#4）
 
-### 4.1 模块级度量（Martin's A/I Matrix）
+### 5.1 数据外部加载
 
-```
-对每个模块计算：
+**旧方案（bug）**：Cytoscape.js + 数据全部内联在一个 HTML 文件里。12000 类 ≈ 50MB 单文件 → 浏览器崩溃。
 
-  Ca (Afferent Coupling)   = 依赖这个模块的其他模块数
-  Ce (Efferent Coupling)   = 这个模块依赖的其他模块数
-  I  (Instability)         = Ce / (Ca + Ce)
-  A  (Abstractness)        = 抽象类数 / 总类数
-  D  (Distance)            = |A + I - 1|
-```
-
-**A/I 矩阵四象限**：
+**新方案**：
 
 ```
-                    I = 1 (不稳定)
-                         │
-    (1,0) 无用区         │  (1,1) 好区
-    · 全是抽象，没人用    │  · 抽象+不稳定
-    · 过度设计           │  · 理想的扩展点
-A=0 ─────────────────────┼────────────────────── A=1
-    (0,0) 痛苦区         │  (0,1) 稳定区
-    · 具体+稳定          │  · 具体+不稳定
-    · 改不动也不敢改      │  · 依赖方（正常）
-                         │
-                    I = 0 (稳定)
+graph.html         (~50KB)  ← 纯页面框架 + JS 逻辑
+atlas.json         (~5MB)   ← 图谱数据（独立 JSON）
+atlas-metrics.json (~1MB)   ← 度量数据
+atlas-patterns.json(~500KB) ← 模式识别结果
 ```
 
-### 4.2 类级热点评分
+HTML 通过 `fetch('/api/atlas.json')` 加载数据，按需请求，渐进渲染。
 
-```
-热点评分 =
-    入度(被依赖数) × 1.0
-  + 出度(依赖其他) × 0.5
-  + 环复杂度最大值 × 0.3
-  + LOC × 0.01
-  + @Transactional 方法数 × 0.2   (事务边界=高风险)
-  + 实现接口数 × 0.1               (接口越多越难改)
+### 5.2 四种视图不变
 
-得分前10% → 标注「🔴 热点类，修改需谨慎」
-```
-
-### 4.3 环依赖检测
-
-```
-Tarjan SCC 算法 → 找出所有强连通分量
-
-SCC 大小 severity:
-  2个节点：   ⚠️ 轻微
-  3-5个节点： 🔶 中度
-  6+个节点：  🔴 严重
-
-额外检测：
-  跨模块环依赖 → 架构坏味道
-  跨仓环依赖   → 架构灾难（需要立即重构）
-```
-
-### 4.4 模块边界质量评分
-
-```
-满分 100
-
-组成部分：
-  依赖方向正确性 (40分)：无反向依赖，无跨层跳过
-  接口/实现比 (25分)：接口数 / (接口+实现) 在 0.15-0.40
-  循环依赖 (20分)：无环依赖=满分，每多一个环-5
-  对外暴露 (15分)：public方法数适中，不过度暴露
-
-评分等级：
-  ≥80：边界良好
-  60-79：边界一般
-  40-59：边界弱
-  <40：无边界
-```
+依赖拓扑图 / A/I 矩阵 / 分层透视 / 热点热力图，WebSocket 增量更新。
 
 ---
 
-## 5. 模式识别层
-
-### 5.1 架构风格检测
-
-LLM 输入：结构化指纹数据（不含类名和方法名的业务语义）
-
-**可识别的架构风格**：
-
-| 风格 | 检测特征 |
-|------|---------|
-| 分层架构 | `controller → service → repository` 单向依赖 |
-| 六边形架构 | `domain` 零框架注解 + `infrastructure` 实现 `domain` 的接口 |
-| CQRS | `command` 和 `query` 分离的包结构 |
-| 事件驱动 | ≥15% 的类标注 `MESSAGE_CONSUMER` 或事件相关注解 |
-| 无架构 | 无清晰的分层，Controller 直接调 DAO，Service 逻辑散落 |
-
-### 5.2 设计模式识别
-
-从类结构指纹 + 关联关系识别 15 种常见模式：
-
-**创建型** (5种)：Singleton, Factory Method, Abstract Factory, Builder, Prototype
-**结构型** (5种)：Adapter, Decorator, Proxy, Composite, Bridge
-**行为型** (5种)：Strategy, Observer, Template Method, Chain of Responsibility, Repository
-
-**识别方式：LLM 批量推理，不用硬编码规则（因为变体太多）**
-
-LLM Prompt 模板：
-```
-你是一个 Java 代码结构分析器。以下是类的结构指纹（不包含类名和方法名的业务语义）：
-
-{指纹JSON}
-
-请识别该类实现了哪些设计模式，只基于结构特征判断：
-- 继承/实现关系
-- 字段依赖关系
-- 方法签名模式
-- 构造器特征
-
-只返回确定的模式，不确定的不要猜测。
-```
-
-### 5.3 模块边界质量评估
-
-LLM 综合评估每个模块的"边界质量"：
+## 6. Agent 可消费输出（Phase 5 预留）
 
 ```json
 {
-  "boundary_quality": "良好",
-  "boundary_type": "显式接口边界",
-  "internal_cohesion": "高",
-  "external_coupling": "低",
-  "suggestions": [
-    "service 包内 7 个类只有 1 个接口 → 建议提取接口",
-    "config 被 5 个模块直接依赖 → 考虑拆分为 api-config"
+  "format": "atlas-agent-v1",
+  "timestamp": "...",
+  "summary": { "total_modules": 12, "total_classes": 3842, "hotspots": [...] },
+  "modules": [{
+    "id": "order-service",
+    "role": "business-service",
+    "quality": { "boundary_score": 82, "ai_score": 0.72 },
+    "deps": ["common-utils", "payment-service"]
+  }],
+  "recommendations": [
+    {"type": "refactor", "target": "legacy-data", "reason": "SCC=1, A=0.1, I=0.0"},
+    {"type": "extract_interface", "target": "common-utils", "reason": "被12模块依赖, 0接口"}
   ]
 }
 ```
 
----
-
-## 6. 多仓融合策略
-
-### 6.1 仓库角色自动推断
-
-```
-仓库类型            │ 指纹特征
-────────────────────┼───────────────────────────────────
-业务服务             │ 有 REST_ENTRY + BUSINESS_LOGIC
-API SDK             │ ≥50% 的类有 public 方法，无 BUSINESS_LOGIC
-公共库/工具          │ 无框架注解，高抽象度，被多仓依赖
-BOM/Parent POM      │ 只有 pom.xml，0 个 Java 文件
-基础设施             │ 全是 CONFIG，无业务逻辑
-数据层               │ ≥60% 的类是 DATA_ACCESS
-消息中间件            │ ≥30% 的类是 MESSAGE_CONSUMER/PUB
-```
-
-### 6.2 跨仓依赖解析
-
-**来源**：
-1. Maven/Gradle `<dependency>` → `groupId:artifactId` → 定位到其他仓
-2. `@FeignClient(name="xxx")` → 根据服务名匹配到其他仓
-3. 共享 `package` 路径 → `com.example.common.*` 被多仓使用
-
-**融合**：
-- 仓级依赖图 + 模块级依赖图双层叠加
-- 标注跨仓边的类型：`COMPILE / RUNTIME / RPC / MESSAGE`
-
-### 6.3 全局统计
-
-```
-- 总仓库数 / 总模块数 / 总类数 / 总接口数
-- 跨仓依赖边数
-- 环依赖（跨仓）
-- 孤儿模块（0 入度 + 0 出度）
-- 神模块（被 80% 以上其他模块依赖）
-- 重复实现（不同仓有相同指纹的类）
-```
+Agent 读这个 JSON 可以直接做决策（重构优先级、影响分析、新人导航）。
 
 ---
 
-## 7. 可视化方案
+## 7. 修复清单
 
-### 7.1 四种视图模式
-
-**视图1：依赖拓扑图（有向图）**
-- 节点大小 = 被依赖数
-- 边粗细 = 调用权重
-- 红色边 = 环依赖
-- 节点颜色 = 架构角色
-
-**视图2：A/I 矩阵散点图**
-- 横轴 = A (抽象度)，纵轴 = I (不稳定度)
-- 一个点 = 一个模块
-- 颜色 = 距离 D (绿=理想，红=最差)
-
-**视图3：架构分层透视图**
-- 层级化的模块排列
-- 箭头必须单向，反向箭头标红
-
-**视图4：热点热力图**
-- 文件树 + 热度颜色
-- 点击展开模块内部类
-
-### 7.2 输出格式
-
-| 格式 | 适用场景 |
-|------|---------|
-| Mermaid 代码块 | Markdown 文档内嵌，微信可直接看 |
-| HTML 单文件 (Cytoscape.js) | 默认输出，拖进浏览器即可交互 |
-| 结构化 JSON | 对接 Neo4j / Draw.io / Graphviz |
-
-### 7.3 多视角报告
-
-同一份数据，三种角色三种报告：
-
-| 视角 | 受众 | 关注点 |
-|------|------|--------|
-| 架构概览 | 架构师 | 风格分布、依赖健康度、模块角色分布 |
-| 重构热力图 | Tech Lead | Top 10 重构候选、技术债评分、改进建议 |
-| 新人导航 | 新人 | 推荐阅读顺序、核心模块标注、范例代码 |
-
----
-
-## 8. 技术选型
-
-| 层 | 工具 | 理由 |
-|----|------|------|
-| AST 解析 | **JavaParser** (Java) | Maven 插件直接用，API 成熟，支持注解+泛型 |
-| 模块分析 | **Maven API** (内置) | `MavenXpp3Reader` 直接读 pom.xml |
-| 字节码补充 | **ASM** (可选) | 有 .class 无源码时反推依赖 |
-| 图计算 | **JGraphT** (Java) | Tarjan SCC、PageRank、最短路径内置 |
-| 模式识别 | **DeepSeek API** | 批量推理，中文输出 |
-| 可视化 | **Cytoscape.js** + **D3.js** | 单 HTML，零依赖，拖浏览器就能看 |
-| 编排层 | **Python CLI** | 调用 JavaParser CLI，调 LLM，生成 HTML |
-
----
-
-## 9. 实现路线图
-
-```
-Phase 1 · 骨架 ───────────────────── 3天
-  JavaParser CLI：解析单仓 → 输出 JSON
-  内容：实体指纹 + 关系提取 (L1+L2)
-  验证：跑一个 Spring Boot 项目，对比手工分析
-
-Phase 2 · 度量 ───────────────────── 3天
-  图计算：入度/出度/环检测/热点
-  A/I 矩阵计算
-  输出：Markdown 报告 + Mermaid 图
-  验证：跑 Nox (74 源文件)，看与已知结构是否吻合
-
-Phase 3 · 模式识别 ───────────────── 3天
-  LLM 管线：
-    架构风格检测 (prompt 模板)
-    设计模式识别 (批量)
-    模块边界质量评估
-  输出：中文架构分析报告
-
-Phase 4 · 多仓 + 可视化 ──────────── 4天
-  多仓扫描 + 跨仓依赖解析
-  Cytoscape.js 交互式 HTML
-  批量测试 12 个不同类型的仓
-
-Phase 5 · Agent 化 ──────────────── 2天
-  封装为 Hermes Skill
-  触发条件：cd 到项目根目录 → 自动扫描 → 输出图谱
-  支持：自然语言问答（"哪些模块最需要重构？"）
-```
-
----
-
-## 10. 关键决策记录
-
-| 决策 | 选择 | 原因 |
-|------|------|------|
-| 业务词 vs 结构特征 | **只用结构特征** | 业务词不可靠/不一致，结构特征是数学事实 |
-| 硬编码规则 vs LLM | **分层**：L1-L3 硬编码，L4 用 LLM | 度量是数学，模式识别是语义 |
-| 图计算在 Java 还是 Python | **Java (JGraphT)** | 数据已在 JVM，避免序列化开销 |
-| 实时 vs 预计算 | **预计算** | 5000 类图谱是全量计算，不适合实时 |
-| 单 HTML vs 服务 | **单 HTML** | 零部署，扔浏览器就能看 |
-| 方法名标注 vs 不标注 | **不标注** | 关系边上只标注类型+权重，不关心具体方法名 |
-
----
-
-## 附录 A：Java 特有的"隐形边"
-
-这些关系在源码中是隐式的，静态分析工具看不到，但 Atlas 能抓到：
-
-```
-显式依赖                  import → new → 方法调用 → 继承         ✅ 传统工具
-Spring IOC 注入           @Autowired → 运行时注入                  ✅ Atlas
-AOP 切面                  @Transactional → 代理对象                ✅ Atlas
-事件总线                  @EventListener → 跨模块解耦              ✅ Atlas
-反射/SPI                  ServiceLoader.load() → 动态加载          ⚠️ 部分
-注解处理器                @Entity → Hibernate 生成 SQL              ❌ 不做
-```
-
----
-
-## 附录 B：LLM Prompt 设计原则
-
-1. **输入只给结构指纹，不给类名/方法名** → 防止 LLM 被业务语义误导
-2. **要求结构化输出** → JSON Schema 约束，不靠自然语言解析
-3. **批量推理** → 一次输入 50 个类的指纹，减少 API 调用
-4. **强制不猜测** → Prompt 明确要求"不确定的模式不要返回"
-5. **分层递进** → 先做模块级推断，再做类级推断，减少 Token 消耗
+| 原bug | 修复方案 |
+|-------|---------|
+| #1 JSON 无版本号 | `atlas.version` 字段，解析端校验 |
+| #2 module 定义模糊 | 拆为 `module` + `module_path` + `java_package` |
+| #3 组合注解未识别 | 注解 meta-annotation 解包逻辑 |
+| #4 HTML 内联 50MB | 数据外部加载 + fetch API |
+| #5 Maven 多模块漏扫 | MavenModuleResolver 自动发现 |
+| #6 JDK 硬编码 17 | 从 pom.xml / gradle / .java-version 自动检测 |
+| #7 LLM 硬编码 DeepSeek | OpenAI-compatible 抽象层，model.yaml 配置 |
+| #8 配置文件散落 | 统一到 config/ 目录 |
+| #9 SpringBootApplication | 注解元信息解析 |

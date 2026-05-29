@@ -1,0 +1,21 @@
+# 源码目录配置 v1
+version: 1
+
+# 模式1：Maven 多模块（推荐）
+type: maven-multi-module
+root: "/path/to/your-spring-project"
+modules: []                           # 空=自动扫描子模块
+
+# 模式2：独立多项目（取消注释下面，注释上面）
+# type: multi-project
+# projects:
+#   - path: "/home/user/project-a"
+#     role: business-service
+#   - path: "/home/user/project-b"
+#     role: common-lib
+
+exclude:
+  - "**/target/**"
+  - "**/node_modules/**"
+  - "**/.git/**"
+  - "**/test/**"

@@ -1,184 +1,101 @@
-# Java Code Atlas
+# Java Code Atlas v0.2
 
-> 纯代码结构图谱 Agent — 自动扫描多仓 Java 代码，生成架构级可视化图谱（不依赖业务语义）
+> 多仓 Java Spring 代码结构图谱 · 边改代码边看图 · 人读优先
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
----
-
-## 为什么做这个？
-
-现有工具（SourceGraph / Doxygen / SonarQube）能告诉你在哪里有什么代码，但不能告诉你**代码是什么**。
-
-Java 项目有大量隐式依赖——Spring IOC 注入、AOP 切面、事件总线、Feign 远程调用——这些是架构的核心，但静态分析工具看不到。
-
-**Java Code Atlas 专门解决这个问题：不看业务命名，只看结构指纹，还原代码的真实架构。**
+[![Architecture](https://img.shields.io/badge/arch-v0.2-blue)]()
 
 ---
 
 ## 一句话
 
-**不看 `createOrder()` 叫什么，只看它有什么注解、被谁依赖、改了会怎样。**
-
----
-
-## 核心理念：去业务化
-
-```
-业务视角：  「这是个订单服务」
-结构视角：  「高入度·SpringBoot·REST入口·依赖3个内部模块·事务边界·JPA持久化」
-```
-
-图谱的受众是架构师——他们要的就是结构特征，不需要业务描述。
-
----
-
-## 五层数据模型
-
-```
-┌─────────────────────────────────────────────────┐
-│ L5 · 图谱投影层  交互式可视化 + 多视角切换        │
-├─────────────────────────────────────────────────┤
-│ L4 · 模式识别层  「分层架构 / 六边形架构 / 环依赖」│  ← LLM Agent
-├─────────────────────────────────────────────────┤
-│ L3 · 度量计算层  内聚/耦合/抽象度/稳定性/环复杂度 │  ← 经典软件度量
-├─────────────────────────────────────────────────┤
-│ L2 · 关系提取层  调用/继承/注入/事件/切面/RPC     │  ← JavaParser + 注解分析
-├─────────────────────────────────────────────────┤
-│ L1 · 实体提取层  类/接口/抽象类/枚举/注解/方法     │  ← JavaParser AST
-└─────────────────────────────────────────────────┘
-```
-
----
-
-## 四种输出视图
-
-### 1. 依赖拓扑图
-- 节点大小 = 被依赖数
-- 边粗细 = 调用权重
-- 红色边 = 环依赖
-- 节点颜色 = 架构角色（REST=绿, Service=蓝, DB=橙）
-
-### 2. A/I 矩阵散点图
-- Martin 的抽象度/不稳定度矩阵
-- 一眼找到「痛苦区」和「无用区」
-
-### 3. 架构分层透视图
-- 依赖方向是否单向
-- 哪些层被跳过（Controller 直接调 DAO）
-
-### 4. 热点热力图
-- 文件树 + 热度颜色
-- 标注「改一个类会影响多少其他类」
-
----
-
-## 架构设计
-
-```
-                            ┌──────────────────────────┐
-                            │    Java Code Atlas CLI    │
-                            │   python3 atlas.py <repo> │
-                            └────────────┬─────────────┘
-                                         │
-              ┌──────────────────────────┼──────────────────────────┐
-              │                          │                          │
-    ┌─────────▼─────────┐    ┌──────────▼──────────┐    ┌──────────▼──────────┐
-    │   JavaParser      │    │   JGraphT (Java)    │    │   DeepSeek API      │
-    │   AST → JSON      │    │   图计算 + 度量      │    │   模式识别 + 解释    │
-    └───────────────────┘    └─────────────────────┘    └─────────────────────┘
-              │                          │                          │
-              └──────────────────────────┼──────────────────────────┘
-                                         │
-                              ┌──────────▼──────────┐
-                              │   Cytoscape.js      │
-                              │   交互式 HTML (单文件)│
-                              └─────────────────────┘
-```
+**`atlas serve` → 启动 Web 服务 → 浏览器打开** → 边改代码边看图谱自动刷新。
 
 ---
 
 ## 快速开始
 
 ```bash
-# 安装依赖
+# 1. 创建配置
+mkdir config/
+cp config/atlas.yaml.example config/atlas.yaml
+# 编辑 sources.yaml 指向你的 Java 项目
+
+# 2. 安装依赖
 pip install -r requirements.txt
+mvn -f java-analyzer/pom.xml package -DskipTests
 
-# 扫描单个仓库
-python atlas.py /path/to/java-project -o output/
+# 3. 启动
+python atlas.py serve
 
-# 扫描多仓
-python atlas.py --repos repo1,repo2,repo3 -o output/
-
-# 输出格式
-python atlas.py /path/to/project --format mermaid    # Mermaid 代码块
-python atlas.py /path/to/project --format html       # 交互式 HTML (默认)
-python atlas.py /path/to/project --format json       # 结构化 JSON
+# 浏览器自动打开 http://127.0.0.1:8765
+# 修改代码 → 保存 → 图谱自动刷新
 ```
 
 ---
 
-## 项目结构
+## 三种使用方式
+
+| 命令 | 说明 |
+|------|------|
+| `atlas serve` | 启动 Web + Watch，边改代码边看图（日常开发） |
+| `atlas scan` | 一次性扫描 → 生成静态报告（CI/CD） |
+| `atlas dump --format json` | 输出纯数据 JSON（给下游 Agent，Phase 5） |
+
+---
+
+## 配置
+
+所有可配置文件统一放在 `config/` 目录：
 
 ```
-java-code-atlas/
-├── README.md                    # 本文件
-├── DESIGN.md                    # 完整设计文档
-├── docs/
-│   ├── fingerprint-spec.md      # 结构指纹规格
-│   ├── relationship-types.md    # 9种关系类型定义
-│   ├── metrics.md               # 度量指标公式
-│   └── multi-repo-strategy.md   # 多仓融合策略
-├── src/
-│   ├── parser/                  # JavaParser 封装
-│   ├── graph/                   # JGraphT 图计算
-│   ├── metrics/                 # 度量计算
-│   ├── llm/                     # LLM 模式识别管线
-│   └── visualize/               # HTML 渲染
-├── templates/
-│   ├── graph.html.j2            # Cytoscape.js 模板
-│   └── report.md.j2             # Markdown 报告模板
-├── tests/
-├── requirements.txt
-└── atlas.py                     # CLI 入口
+config/
+├── atlas.yaml       # 主配置（端口/JDK/输出格式）
+├── sources.yaml     # 代码源目录（Maven多模块/独立多项目）
+└── model.yaml       # LLM 模型配置（可配任意 OpenAI 兼容 API）
 ```
 
----
-
-## 9种关系类型
-
-| 关系 | Java 特征 | 权重 |
-|------|----------|------|
-| `EXTENDS` | `class B extends A` | 1.0 |
-| `INVOKES` | 方法体内调用其他类 | 1.0 |
-| `IMPLEMENTS` | `class B implements A` | 0.8 |
-| `INJECTS` | `@Autowired` / `@Resource` | 0.6 |
-| `LISTENS` | `@EventListener` / `@KafkaListener` | 0.3 |
-| `CONFIGURES` | `@Bean` 方法声明 | 0.3 |
-| `ADVISED_BY` | `@Aspect` 切面拦截 | 0.1 |
-| `RPC_CALLS` | `@FeignClient` | 0.5 |
-| `TX_BOUNDARY` | `@Transactional` | 0.2 |
+详见 [DESIGN.md](./DESIGN.md)
 
 ---
 
-## 实现路线图
+## 四种视图
 
-| Phase | 内容 | 时间 |
-|-------|------|------|
-| **P1 骨架** | JavaParser CLI → JSON。实体指纹 + 关系提取 (L1+L2) | 3天 |
-| **P2 度量** | 图计算：入度/出度/环检测/热点。A/I矩阵。Markdown+Mermaid | 3天 |
-| **P3 模式识别** | LLM管线：架构风格检测 + 设计模式识别 + 边界质量评估 | 3天 |
-| **P4 多仓+可视化** | 多仓扫描 + 跨仓依赖解析 + Cytoscape.js交互式HTML | 4天 |
-| **P5 Agent化** | 封装为 Hermes Skill，自然语言问答 | 2天 |
+| 视图 | 说明 |
+|------|------|
+| 依赖拓扑 | 有向图，节点大小=被依赖数，红色边=环依赖 |
+| A/I 矩阵 | Martin 抽象度/不稳定度散点，一眼找到痛苦区 |
+| 分层透视 | 层级依赖方向验证，反向箭头标红 |
+| 热点热力 | 文件树热力图，标注高修改风险类 |
 
 ---
 
-## 相关资源
+## 与旧版差异 (v0.1 → v0.2)
 
-- [JavaParser](https://github.com/javaparser/javaparser) — Java AST 解析
-- [JGraphT](https://github.com/jgrapht/jgrapht) — 图算法库
-- [Cytoscape.js](https://js.cytoscape.org/) — 图可视化
-- [Martin's A/I Matrix](https://en.wikipedia.org/wiki/Software_package_metrics) — 抽象度/不稳定度矩阵
+| 变更 | 说明 |
+|------|------|
+| ✅ config/ 统一目录 | 所有配置集中管理 |
+| ✅ JDK 自动检测 | 从 pom.xml / gradle / .java-version 读取 |
+| ✅ Maven 多模块支持 | 自动发现父子模块 |
+| ✅ LLM 可配置 | 支持任意 OpenAI 兼容 API |
+| ✅ atlas serve + Watch | Web 服务 + 文件监听 + 浏览器实时刷新 |
+| ✅ 数据外部加载 | HTML <100KB，JSON 独立，不再 50MB 单文件 |
+| ✅ 注解元信息解析 | @SpringBootApplication 等组合注解正确识别 |
+| ✅ JSON schema 版本化 | 数据契约版本号，避免静默失败 |
+
+---
+
+## 技术栈
+
+| 层 | 工具 | 语言 |
+|----|------|------|
+| AST 解析 | JavaParser | Java |
+| 图计算 | JGraphT | Java |
+| 模式识别 | 可配置 LLM 后端 | Python |
+| Web 服务 | aiohttp + WebSocket | Python |
+| 文件监听 | watchdog | Python |
+| 可视化 | Cytoscape.js + D3.js | JavaScript |
+| 模板渲染 | Jinja2 | Python |
 
 ---
 
