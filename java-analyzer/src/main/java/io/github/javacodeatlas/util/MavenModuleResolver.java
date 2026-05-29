@@ -40,7 +40,12 @@ public class MavenModuleResolver {
                 if (Files.exists(modulePom)) {
                     packaging = parsePackaging(modulePom);
                 }
-                if ("pom".equals(packaging)) continue;
+                if ("pom".equals(packaging)) {
+                    // recursion for nested aggregator modules
+                    List<ModuleInfo> nested = resolve(moduleDir);
+                    modules.addAll(nested);
+                    continue;
+                }
 
                 Path src = moduleDir.resolve("src/main/java");
                 if (Files.exists(src)) {
@@ -76,7 +81,7 @@ public class MavenModuleResolver {
         if (start < 0) return "jar";
         int end = content.indexOf("</packaging>", start);
         if (end < 0) return "jar";
-        return content.substring(start + 12, end).trim();
+        return content.substring(start + 11, end).trim();
     }
 
     public static String parseArtifactId(Path pom, String fallback) {
