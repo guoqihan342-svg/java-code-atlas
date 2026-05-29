@@ -1,19 +1,20 @@
-# Jig v0.2 — Windows 版
+# JStruct v0.2 — Windows 版
 
-> Java Insight Graph · 代码结构图谱 · 边改代码边看图
+> Java Structure · 代码结构图谱 · 边改代码边看图
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Architecture](https://img.shields.io/badge/arch-v0.2-blue)]()
 
 > **分支**：`windows`（主力开发） | `main`（Linux 版，维护模式）
 >
 > `main` 分支为 Linux/WSL 版本，`windows` 分支为 Windows 原生版本。
+>
+> 后续扩展：PyStruct · GoStruct · RsStruct
 
 ---
 
 ## 一句话
 
-**`jig serve` → 启动 Web 服务 → 浏览器打开** → 边改代码边看图谱自动刷新。
+**`jstruct serve` → 启动 Web 服务 → 浏览器打开** → 边改代码边看图谱自动刷新。
 
 ---
 
@@ -45,9 +46,9 @@ python atlas.py serve
 
 | 命令 | 说明 |
 |------|------|
-| `jig serve` | 启动 Web + Watch，边改代码边看图（日常开发） |
-| `jig scan` | 一次性扫描 → 生成静态报告（CI/CD） |
-| `jig dump --format json` | 输出纯数据 JSON（给下游 Agent，Phase 5） |
+| `jstruct serve` | 启动 Web + Watch，边改代码边看图（日常开发） |
+| `jstruct scan` | 一次性扫描 → 生成静态报告（CI/CD） |
+| `jstruct dump` | 输出纯数据 JSON（给下游 Agent） |
 
 ---
 
