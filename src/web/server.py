@@ -33,6 +33,8 @@ class AtlasServer:
 
     def _setup_routes(self) -> None:
         self.app.router.add_get("/", self._index)
+        self.app.router.add_static("/static/", Path("templates"), name="static")
+        self.app.router.add_get("/api/atlas", self._atlas_json)
         self.app.router.add_get("/api/atlas.json", self._atlas_json)
         self.app.router.add_get("/api/status", self._status)
         self.app.router.add_post("/api/reload", self._reload)

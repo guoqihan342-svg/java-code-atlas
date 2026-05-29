@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -120,7 +121,7 @@ class JavaAnalyzer:
 
         mvn = str(Path(self.maven_home) / "bin" / "mvn") if self.maven_home else "mvn"
         maven_args = str(self.config.get("java", {}).get("maven_args") or "").split()
-        cmd = [mvn, "-f", str(pom), "package", "-DskipTests", *maven_args]
+        cmd = [mvn, "-f", str(pom), "package", "-Dmaven.test.skip=true", *maven_args]
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=900, check=False)
         except FileNotFoundError as exc:
@@ -136,6 +137,10 @@ class JavaAnalyzer:
                 raise AnalyzerError(f"构建完成但未找到 JAR: {self.jar_path}")
 
     def _detect_jdk(self) -> str:
+        configured = self._detect_jdk_from_pom()
+        if configured:
+            return configured
+
         java = shutil.which("java")
         if not java:
             return ""
@@ -144,6 +149,36 @@ class JavaAnalyzer:
         if '"' in text:
             version = text.split('"')[1]
             return version.split(".")[0] if not version.startswith("1.") else version.split(".")[1]
+        return ""
+
+    def _detect_jdk_from_pom(self) -> str:
+        """Infer target JDK from the configured root pom.xml when present."""
+
+        sources = self.config.get("sources", {})
+        roots: list[Path] = []
+        if sources.get("type") == "multi-project":
+            roots = [Path(project["path"]) for project in sources.get("projects", []) if project.get("path")]
+        elif sources.get("root"):
+            roots = [Path(sources["root"])]
+
+        patterns = (
+            r"<maven\.compiler\.release>\s*([^<\s]+)\s*</maven\.compiler\.release>",
+            r"<maven\.compiler\.target>\s*([^<\s]+)\s*</maven\.compiler\.target>",
+            r"<java\.version>\s*([^<\s]+)\s*</java\.version>",
+            r"<release>\s*([^<\s]+)\s*</release>",
+            r"<target>\s*([^<\s]+)\s*</target>",
+            r"<source>\s*([^<\s]+)\s*</source>",
+        )
+        for root in roots:
+            pom = root / "pom.xml"
+            if not pom.exists():
+                continue
+            text = pom.read_text(encoding="utf-8", errors="ignore")
+            for pattern in patterns:
+                match = re.search(pattern, text)
+                if match:
+                    version = match.group(1)
+                    return version.split(".")[1] if version.startswith("1.") else version
         return ""
 
     def _validate_schema(self, data: dict[str, Any]) -> None:

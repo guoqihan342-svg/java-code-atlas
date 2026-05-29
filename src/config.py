@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from yaml import YAMLError
 
 
 class ConfigError(ValueError):
@@ -48,7 +49,8 @@ class ConfigLoader:
         """Load, merge, resolve environment variables, and validate config."""
 
         atlas_path = Path(config_file)
-        atlas = cls._merge_dicts(deepcopy(cls.DEFAULTS), cls._load_yaml(atlas_path))
+        atlas_overrides = cls._load_yaml(atlas_path) if atlas_path.exists() else {}
+        atlas = cls._merge_dicts(deepcopy(cls.DEFAULTS), atlas_overrides)
 
         sources_ref = atlas.get("sources", {}).get("config_file", "config/sources.yaml")
         model_ref = atlas.get("llm", {}).get("config_file", "config/model.yaml")
@@ -89,8 +91,11 @@ class ConfigLoader:
         yaml_path = Path(path)
         if not yaml_path.exists():
             raise FileNotFoundError(f"配置文件不存在: {yaml_path}")
-        with yaml_path.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
+        try:
+            with yaml_path.open("r", encoding="utf-8") as handle:
+                data = yaml.safe_load(handle) or {}
+        except YAMLError as exc:
+            raise ConfigError(f"配置文件 YAML 解析失败: {yaml_path}") from exc
         if not isinstance(data, dict):
             raise ConfigError(f"配置文件必须是 YAML object: {yaml_path}")
         return data
@@ -108,11 +113,11 @@ class ConfigLoader:
     def _resolve_env_vars(cls, config: Any) -> Any:
         """Recursively replace ${VAR_NAME} placeholders with environment values."""
 
-        pattern = re.compile(r"\$\{([^}]+)\}")
+        pattern = re.compile(r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
         def resolve(value: Any) -> Any:
             if isinstance(value, str):
-                return pattern.sub(lambda m: os.environ.get(m.group(1), m.group(0)), value)
+                return pattern.sub(lambda m: os.environ.get(m.group(1) or m.group(2), m.group(0)), value)
             if isinstance(value, dict):
                 return {k: resolve(v) for k, v in value.items()}
             if isinstance(value, list):

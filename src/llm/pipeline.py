@@ -13,14 +13,18 @@ from .prompts import ARCHITECTURE_PROMPT, DESIGN_PATTERN_PROMPT
 class LlmPipeline:
     """Run module architecture and class pattern detection in bounded batches."""
 
-    def __init__(self, backend: LlmBackend, batch_size: int = 50):
+    def __init__(self, backend: LlmBackend | None, batch_size: int = 50, enabled: bool = True):
         self.backend = backend
+        self.enabled = enabled and backend is not None
         self.batch_size = max(1, batch_size)
-        self.semaphore = asyncio.Semaphore(max(1, backend.config.max_concurrency))
+        max_concurrency = backend.config.max_concurrency if backend is not None else 1
+        self.semaphore = asyncio.Semaphore(max(1, max_concurrency))
 
     async def detect_architecture(self, modules: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Detect architecture style for module fingerprints."""
 
+        if not self.enabled:
+            return []
         tasks = [self._arch_batch(batch) for batch in self._batches(modules)]
         if not tasks:
             return []
@@ -30,6 +34,8 @@ class LlmPipeline:
     async def detect_patterns(self, classes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Detect design patterns for class fingerprints."""
 
+        if not self.enabled:
+            return []
         tasks = [self._pattern_batch(batch) for batch in self._batches(classes)]
         if not tasks:
             return []
