@@ -1,0 +1,17 @@
+# Auto-detect text files, normalize to LF in repo
+* text=auto
+
+# Windows-specific scripts need CRLF on checkout
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Shell scripts must stay LF
+*.sh text eol=lf
+
+# Binary files
+*.jar binary
+*.class binary
+*.png binary
+*.jpg binary
+*.ico binary

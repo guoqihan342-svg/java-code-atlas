@@ -15,6 +15,8 @@
 
 ## 快速开始
 
+### Linux / WSL
+
 ```bash
 # 1. 创建配置
 mkdir config/
@@ -26,6 +28,27 @@ pip install -r requirements.txt
 mvn -f java-analyzer/pom.xml package -DskipTests
 
 # 3. 启动
+python atlas.py serve
+
+# 浏览器自动打开 http://127.0.0.1:8765
+# 修改代码 → 保存 → 图谱自动刷新
+```
+
+### Windows (PowerShell)
+
+```powershell
+# 1. 创建配置
+New-Item -ItemType Directory -Force config
+Copy-Item config\atlas.yaml.example config\atlas.yaml
+# 编辑 sources.yaml 指向你的 Java 项目
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 编译分析器（使用 javac，无需 Maven）
+.\run_java_tests.ps1
+
+# 4. 启动
 python atlas.py serve
 
 # 浏览器自动打开 http://127.0.0.1:8765
@@ -67,6 +90,18 @@ config/
 | A/I 矩阵 | Martin 抽象度/不稳定度散点，一眼找到痛苦区 |
 | 分层透视 | 层级依赖方向验证，反向箭头标红 |
 | 热点热力 | 文件树热力图，标注高修改风险类 |
+
+---
+
+## 跨平台
+
+| 平台 | 构建方式 | 测试脚本 |
+|------|---------|---------|
+| Linux / WSL | Maven (`mvn package`) | `run_java_tests.sh` |
+| Windows | javac 直编 (无需 Maven) | `run_java_tests.ps1` |
+| macOS | Maven (`mvn package`) | `run_java_tests.sh` |
+
+Python 代码已自动适配 `;`/`:` 路径分隔和 `java`/`java.exe` 调用。
 
 ---
 
