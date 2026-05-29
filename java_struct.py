@@ -1,4 +1,4 @@
-"""CLI entry point for JavaStruct."""
+"""CLI entry point for Java Code Atlas."""
 
 from src.cli import cli
 

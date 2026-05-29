@@ -24,29 +24,29 @@ def test_jdk_detection_logic(monkeypatch: pytest.MonkeyPatch, sample_config: dic
 def test_jar_path_construction_from_config(sample_config: dict):
     analyzer = JavaAnalyzer(sample_config)
 
-    assert analyzer.jar_path == Path("java-analyzer/target/java-struct-analyzer-0.2.0.jar")
+    assert analyzer.jar_path == Path("java-analyzer/target/java-code-atlas-analyzer-0.2.0.jar")
     command = analyzer._build_command("analyze")
-    assert "io.github.javastruct.AnalyzerCli" in command
+    assert "io.github.javacodeatlas.AnalyzerCli" in command
     assert "--root" in command
     assert sample_config["sources"]["root"] in command
 
 
-def test_analyze_subprocess_call_constructed_correctly(monkeypatch: pytest.MonkeyPatch, sample_config: dict, sample_java_struct_data: dict, tmp_path: Path):
+def test_analyze_subprocess_call_constructed_correctly(monkeypatch: pytest.MonkeyPatch, sample_config: dict, sample_atlas_data: dict, tmp_path: Path):
     calls: list[list[str]] = []
     monkeypatch.setattr(JavaAnalyzer, "_build_jar", lambda self: None)
 
     def fake_run(cmd, capture_output, text, timeout, check):
         calls.append(cmd)
         output_path = Path(cmd[cmd.index("--output") + 1])
-        output_path.write_text(json.dumps(sample_java_struct_data), encoding="utf-8")
+        output_path.write_text(json.dumps(sample_atlas_data), encoding="utf-8")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
     monkeypatch.setattr("src.orchestrator.subprocess.run", fake_run)
-    output_path = tmp_path / "java_struct-raw.json"
+    output_path = tmp_path / "atlas-raw.json"
 
     result = JavaAnalyzer(sample_config).analyze(output_path)
 
-    assert result["java_struct"]["version"] == JavaAnalyzer.CURRENT_SCHEMA_VERSION
+    assert result["atlas"]["version"] == JavaAnalyzer.CURRENT_SCHEMA_VERSION
     assert calls
     cmd = calls[0]
     assert cmd[-2:] == ["--output", str(output_path)]
@@ -63,4 +63,4 @@ def test_error_handling_when_analyzer_process_fails(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("src.orchestrator.subprocess.run", fake_run)
 
     with pytest.raises(AnalyzerError, match="bad config"):
-        JavaAnalyzer(sample_config).analyze(tmp_path / "java_struct-raw.json")
+        JavaAnalyzer(sample_config).analyze(tmp_path / "atlas-raw.json")

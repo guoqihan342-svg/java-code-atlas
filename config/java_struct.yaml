@@ -1,5 +1,5 @@
-# JavaStruct 主配置 v1
-# 复制此文件为 java_struct.yaml 并修改
+# Java Code Atlas 主配置 v1
+# 复制此文件为 atlas.yaml 并修改
 
 version: 1
 
@@ -13,13 +13,15 @@ java:
   jdk_version: ""                     # "8"|"11"|"17"|"21"|""=自动检测
   maven_home: ""                      # Maven路径，""=从PATH找
   maven_args: ""                      # 额外Maven参数
+  analyze_timeout_seconds: 600        # Java分析超时(秒)，0=不限制
+  build_timeout_seconds: 900          # Maven构建超时(秒)，0=不限制
 
 llm:
   config_file: "config/model.yaml"    # 模型配置
   enabled: true
 
 output:
-  dir: ".java_struct/output"
+  dir: ".atlas/output"
   formats: ["html", "md", "mmd", "json"]
   human_first: true
 
@@ -31,9 +33,9 @@ serve:
   open_browser: true
 
 cache:
-  dir: ".java_struct/cache"
+  dir: ".atlas/cache"
   ttl_hours: 24
 
 logging:
   level: "info"
-  file: ".java_struct/java_struct.log"
+  file: ".atlas/atlas.log"

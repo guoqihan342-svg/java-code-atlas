@@ -1,4 +1,4 @@
-package io.github.javastruct.extract;
+package io.github.javacodeatlas.extract;
 
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import java.util.ArrayList;

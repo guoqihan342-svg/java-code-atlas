@@ -7,9 +7,9 @@ import pytest
 
 
 @pytest.fixture
-def sample_java_struct_data() -> dict:
+def sample_atlas_data() -> dict:
     return {
-        "java_struct": {
+        "atlas": {
             "version": "1.0.0",
             "generated_at": "2026-05-29T00:00:00+00:00",
             "project": "sample-project",
@@ -36,9 +36,9 @@ def sample_java_struct_data() -> dict:
 
 
 @pytest.fixture
-def java_struct_file(tmp_path: Path, sample_java_struct_data: dict) -> Path:
-    path = tmp_path / "java_struct-raw.json"
-    path.write_text(json.dumps(sample_java_struct_data), encoding="utf-8")
+def atlas_file(tmp_path: Path, sample_atlas_data: dict) -> Path:
+    path = tmp_path / "atlas-raw.json"
+    path.write_text(json.dumps(sample_atlas_data), encoding="utf-8")
     return path
 
 
@@ -77,7 +77,7 @@ def sample_config(tmp_path: Path) -> dict:
 def config_files(tmp_path: Path) -> Path:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    (config_dir / "java_struct.yaml").write_text(
+    (config_dir / "atlas.yaml").write_text(
         """version: 1
 project:
   name: fixture-project
@@ -89,7 +89,7 @@ llm:
   config_file: config/model.yaml
   enabled: true
 output:
-  dir: .java_struct/output
+  dir: .atlas/output
 serve:
   host: 127.0.0.1
   port: 8765

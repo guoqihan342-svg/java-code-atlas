@@ -1,4 +1,4 @@
-package io.github.javastruct.extract;
+package io.github.javacodeatlas.extract;
 
 import com.github.javaparser.ParseProblemException;
 import com.github.javaparser.StaticJavaParser;
@@ -15,9 +15,9 @@ import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.type.Type;
-import io.github.javastruct.model.EntityFingerprint;
-import io.github.javastruct.model.Relationship;
-import io.github.javastruct.util.MavenModuleResolver;
+import io.github.javacodeatlas.model.EntityFingerprint;
+import io.github.javacodeatlas.model.Relationship;
+import io.github.javacodeatlas.util.MavenModuleResolver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

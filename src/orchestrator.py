@@ -17,13 +17,13 @@ class AnalyzerError(RuntimeError):
 
 
 class JavaAnalyzer:
-    """Build and invoke java-struct-analyzer commands."""
+    """Build and invoke java-code-atlas-analyzer commands."""
 
     CURRENT_SCHEMA_VERSION = "1.0.0"
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.jar_path = Path("java-analyzer/target/java-struct-analyzer-0.2.0.jar")
+        self.jar_path = Path("java-analyzer/target/java-code-atlas-analyzer-0.2.0.jar")
         self.jdk_version = str(config.get("java", {}).get("jdk_version") or self._detect_jdk())
         self.maven_home = str(config.get("java", {}).get("maven_home") or "")
 
@@ -49,15 +49,15 @@ class JavaAnalyzer:
         """Run analyze + metrics and merge the resulting data for web rendering."""
 
         output_dir = Path(self.config["output"]["dir"])
-        raw_path = output_dir / "java_struct-raw.json"
-        metrics_path = output_dir / "java_struct-metrics.json"
+        raw_path = output_dir / "atlas-raw.json"
+        metrics_path = output_dir / "atlas-metrics.json"
         raw = self.analyze(raw_path)
         metrics = self.metrics(raw_path, metrics_path)
-        java_struct = dict(raw)
-        java_struct["metrics"] = metrics.get("metrics", metrics)
-        java_struct_path = output_dir / "java_struct.json"
-        java_struct_path.write_text(json.dumps(java_struct, ensure_ascii=False, indent=2), encoding="utf-8")
-        return java_struct
+        atlas = dict(raw)
+        atlas["metrics"] = metrics.get("metrics", metrics)
+        atlas_path = output_dir / "atlas.json"
+        atlas_path.write_text(json.dumps(atlas, ensure_ascii=False, indent=2), encoding="utf-8")
+        return atlas
 
     def _build_command(self, subcommand: str) -> list[str]:
         java = "java"
@@ -72,7 +72,7 @@ class JavaAnalyzer:
             classpath.extend(str(p) for p in repo.rglob("*.jar"))
         cp_sep = ";" if os.name == "nt" else ":"
         cmd = [java, "-cp", cp_sep.join(classpath),
-               "io.github.javastruct.AnalyzerCli", subcommand]
+               "io.github.javacodeatlas.AnalyzerCli", subcommand]
 
         mvn_home = self.maven_home or os.environ.get("M2_HOME", "")
         if mvn_home:
@@ -92,12 +92,24 @@ class JavaAnalyzer:
         return cmd
 
     def _run(self, cmd: list[str], output_path: Path) -> dict[str, Any]:
+        java_cfg = self.config.get("java", {})
+        timeout_sec = java_cfg.get("analyze_timeout_seconds", 600)
+        timeout = None if timeout_sec == 0 else int(timeout_sec)
+
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=False)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
         except FileNotFoundError as exc:
             raise AnalyzerError(f"命令不存在: {cmd[0]}") from exc
         except subprocess.TimeoutExpired as exc:
-            raise AnalyzerError("Java 分析器执行超时") from exc
+            if output_path.exists():
+                try:
+                    with output_path.open("r", encoding="utf-8") as handle:
+                        data = json.load(handle)
+                    data["_warning"] = "分析超时，仅返回部分结果"
+                    return data
+                except (json.JSONDecodeError, OSError):
+                    raise AnalyzerError("分析超时且输出文件不完整") from exc
+            raise AnalyzerError("分析超时且未生成任何输出") from exc
 
         if result.returncode != 0:
             raise AnalyzerError(f"Java分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
@@ -110,41 +122,34 @@ class JavaAnalyzer:
         return data
 
     def _build_jar(self) -> None:
-        """Build analyzer classes with javac when they are missing."""
+        """Build analyzer JAR with Maven when it is missing."""
 
-        classes_dir = self.jar_path.parent / "classes"
-        main_class = classes_dir / "io" / "github" / "java_struct" / "AnalyzerCli.class"
-        if main_class.exists():
+        if self.jar_path.exists():
             return
+        pom = Path("java-analyzer/pom.xml")
+        if not pom.exists():
+            raise AnalyzerError("缺少 java-analyzer/pom.xml，无法构建 Java 分析器")
 
-        # Compile with javac (Maven/Wagon hangs on some proxy configs)
-        java_src = Path("java-analyzer/src/main/java")
-        if not java_src.exists():
-            raise AnalyzerError("缺少 java-analyzer/src/main/java，无法构建")
-        classes_dir.mkdir(parents=True, exist_ok=True)
-
-        # Build classpath from Maven repo
-        repo = Path.home() / ".m2" / "repository"
-        cp_jars = list(repo.rglob("*.jar")) if repo.exists() else []
-        cp_sep = ";" if os.name == "nt" else ":"
-        classpath = cp_sep.join(str(p) for p in cp_jars)
-
-        java_files = list(java_src.rglob("*.java"))
-        if not java_files:
-            raise AnalyzerError("没有找到 Java 源文件")
-
-        # Use file list for Windows long-command-line compatibility
-        file_list = classes_dir.parent / "sources.txt"
-        file_list.write_text("\n".join(str(f) for f in java_files))
-        cmd = ["javac", "-cp", classpath, "-d", str(classes_dir), f"@{file_list}"]
+        mvn = str(Path(self.maven_home) / "bin" / "mvn") if self.maven_home else "mvn"
+        maven_args = str(self.config.get("java", {}).get("maven_args") or "").split()
+        build_timeout_sec = self.config.get("java", {}).get("build_timeout_seconds", 900)
+        build_timeout = None if build_timeout_sec == 0 else int(build_timeout_sec)
+        cmd = [mvn, "-f", str(pom), "package", "-Dmaven.test.skip=true", *maven_args]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, check=False)
-        except FileNotFoundError:
-            raise AnalyzerError("javac 不可用，请安装 JDK 17+")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=build_timeout, check=False)
+        except FileNotFoundError as exc:
+            raise AnalyzerError("Maven 不可用，请配置 java.maven_home 或将 mvn 加入 PATH") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AnalyzerError("Maven 构建超时，请增大 java.build_timeout_seconds 或检查网络连接") from exc
         if result.returncode != 0:
-            raise AnalyzerError(f"Java 编译失败:\n{result.stderr.strip() or result.stdout.strip()}")
-        if not main_class.exists():
-            raise AnalyzerError(f"编译完成但未找到 AnalyzerCli.class")
+            raise AnalyzerError(f"构建 Java 分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
+        if not self.jar_path.exists():
+            candidates = sorted(Path("java-analyzer/target").glob("*.jar"))
+            shaded = [p for p in candidates if "original-" not in p.name]
+            if shaded:
+                self.jar_path = shaded[0]
+            else:
+                raise AnalyzerError(f"构建完成但未找到 JAR: {self.jar_path}")
 
     def _detect_jdk(self) -> str:
         configured = self._detect_jdk_from_pom()
@@ -192,21 +197,21 @@ class JavaAnalyzer:
         return ""
 
     def _validate_schema(self, data: dict[str, Any]) -> None:
-        version = data.get("java_struct", {}).get("version")
+        version = data.get("atlas", {}).get("version")
         if version != self.CURRENT_SCHEMA_VERSION:
             raise ValueError(f"数据版本不匹配: 期望 {self.CURRENT_SCHEMA_VERSION}, 收到 {version}; 请重建 JAR")
 
 
-def fallback_empty_java_struct(config: dict[str, Any], error: str | None = None) -> dict[str, Any]:
-    """Create a valid empty JavaStruct document for recoverable UI states."""
+def fallback_empty_atlas(config: dict[str, Any], error: str | None = None) -> dict[str, Any]:
+    """Create a valid empty Atlas document for recoverable UI states."""
 
     now = datetime.now(timezone.utc).isoformat()
-    java_struct = {
-        "java_struct": {
+    atlas = {
+        "atlas": {
             "version": JavaAnalyzer.CURRENT_SCHEMA_VERSION,
             "generated_at": now,
             "generatedAt": now,
-            "project": config.get("project", {}).get("name", "java_struct"),
+            "project": config.get("project", {}).get("name", "java-code-atlas"),
             "totalModules": 0,
             "totalEntities": 0,
             "totalRelationships": 0,
@@ -217,5 +222,5 @@ def fallback_empty_java_struct(config: dict[str, Any], error: str | None = None)
         "metrics": {"hotspots": [], "cycles": [], "martin": []},
     }
     if error:
-        java_struct["error"] = error
-    return java_struct
+        atlas["error"] = error
+    return atlas

@@ -12,9 +12,9 @@
 
 **症状**：Java 端改了字段名，Python 端静默失败，排查困难。
 
-**根因**：`JavaStructDocument` 没有版本字段，两端各自假设 schema 一致。
+**根因**：`AtlasDocument` 没有版本字段，两端各自假设 schema 一致。
 
-**修复**：`java_struct.version = "1.0.0"`，Python 端加载时校验版本号。不匹配→报错+提示重建 JAR。
+**修复**：`atlas.version = "1.0.0"`，Python 端加载时校验版本号。不匹配→报错+提示重建 JAR。
 
 **教训**：任何跨语言/跨进程的数据契约必须有版本号。语义化版本 `MAJOR.MINOR.PATCH`。
 
@@ -50,7 +50,7 @@
 
 **根因**：数据（JSON）和渲染逻辑（JS）混在一个 HTML 文件里。
 
-**修复**：HTML 只含渲染逻辑 (<100KB)，数据通过 `fetch('/api/java-struct.json')` 外部加载。渐进渲染。
+**修复**：HTML 只含渲染逻辑 (<100KB)，数据通过 `fetch('/api/atlas.json')` 外部加载。渐进渲染。
 
 **教训**：数据永远不要内联在 HTML 里。浏览器内存上限约 2GB，但 DOM 操作 50MB 数据就会卡死。
 

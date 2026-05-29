@@ -1,4 +1,4 @@
-package io.github.javastruct.util;
+package io.github.javacodeatlas.util;
 
 import java.io.IOException;
 import java.nio.file.Files;

@@ -5,8 +5,8 @@
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.github.javastruct</groupId>
-  <artifactId>java-struct-analyzer</artifactId>
+  <groupId>io.github.javacodeatlas</groupId>
+  <artifactId>java-code-atlas-analyzer</artifactId>
   <version>0.2.0</version>
   <packaging>jar</packaging>
 
@@ -68,7 +68,7 @@
             <configuration>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>io.github.javastruct.AnalyzerCli</mainClass>
+                  <mainClass>io.github.javacodeatlas.AnalyzerCli</mainClass>
                 </transformer>
               </transformers>
             </configuration>

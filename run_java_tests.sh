@@ -34,5 +34,5 @@ javac -cp "$TEST_CP" -d "$TEST_CLASSES" @"$ANALYZER_DIR/target/test-sources.txt"
 java -jar "$LIB_DIR/junit-platform-console-standalone-1.10.0.jar" \
   --class-path "$MAIN_CLASSES:$TEST_CLASSES:$M2_CP" \
   --scan-class-path "$TEST_CLASSES" \
-  --include-classname '^io\.github\.javastruct\..*Test$' \
+  --include-classname '^io\.github\.javacodeatlas\..*Test$' \
   --exclude-engine junit-vintage

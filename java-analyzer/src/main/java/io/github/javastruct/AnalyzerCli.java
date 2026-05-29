@@ -1,16 +1,16 @@
-package io.github.javastruct;
+package io.github.javacodeatlas;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import io.github.javastruct.extract.FingerprintExtractor;
-import io.github.javastruct.extract.RelationshipExtractor;
-import io.github.javastruct.metrics.MetricsCli;
-import io.github.javastruct.model.JavaStructDocument;
-import io.github.javastruct.model.EntityFingerprint;
-import io.github.javastruct.model.ModuleFingerprint;
-import io.github.javastruct.model.Relationship;
-import io.github.javastruct.util.JdkVersionDetector;
-import io.github.javastruct.util.MavenModuleResolver;
+import io.github.javacodeatlas.extract.FingerprintExtractor;
+import io.github.javacodeatlas.extract.RelationshipExtractor;
+import io.github.javacodeatlas.metrics.MetricsCli;
+import io.github.javacodeatlas.model.AtlasDocument;
+import io.github.javacodeatlas.model.EntityFingerprint;
+import io.github.javacodeatlas.model.ModuleFingerprint;
+import io.github.javacodeatlas.model.Relationship;
+import io.github.javacodeatlas.util.JdkVersionDetector;
+import io.github.javacodeatlas.util.MavenModuleResolver;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -26,7 +26,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 @Command(
-    name = "java-struct-analyzer",
+    name = "java-code-atlas-analyzer",
     mixinStandardHelpOptions = true,
     subcommands = {AnalyzerCli.AnalyzeCommand.class, AnalyzerCli.MetricsCommand.class}
 )
@@ -70,17 +70,17 @@ public class AnalyzerCli implements Runnable {
             }
             relationships = RelationshipExtractor.aggregate(relationships);
 
-            JavaStructDocument doc = new JavaStructDocument();
+            AtlasDocument doc = new AtlasDocument();
             doc.entities = entities;
             doc.relationships = relationships;
             doc.modules = buildModuleFingerprints(root, moduleInfos, entities, relationships);
-            doc.java_struct.version = JavaStructDocument.CURRENT_VERSION;
-            doc.java_struct.generatedAt = Instant.now().toString();
-            doc.java_struct.project = root.toAbsolutePath().getFileName().toString();
-            doc.java_struct.jdkVersion = JdkVersionDetector.detect(root);
-            doc.java_struct.totalModules = doc.modules.size();
-            doc.java_struct.totalEntities = doc.entities.size();
-            doc.java_struct.totalRelationships = doc.relationships.size();
+            doc.atlas.version = AtlasDocument.CURRENT_VERSION;
+            doc.atlas.generatedAt = Instant.now().toString();
+            doc.atlas.project = root.toAbsolutePath().getFileName().toString();
+            doc.atlas.jdkVersion = JdkVersionDetector.detect(root);
+            doc.atlas.totalModules = doc.modules.size();
+            doc.atlas.totalEntities = doc.entities.size();
+            doc.atlas.totalRelationships = doc.relationships.size();
 
             writeJson(output, doc);
             return 0;

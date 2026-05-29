@@ -1,11 +1,11 @@
-package io.github.javastruct.metrics;
+package io.github.javacodeatlas.metrics;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.github.javastruct.model.JavaStructDocument;
-import io.github.javastruct.model.EntityFingerprint;
-import io.github.javastruct.model.Relationship;
+import io.github.javacodeatlas.model.AtlasDocument;
+import io.github.javacodeatlas.model.EntityFingerprint;
+import io.github.javacodeatlas.model.Relationship;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 class GraphAnalyzerTest {
     @Test
     void classGraphSupportsPageRankOnSimpleGraph() {
-        JavaStructDocument doc = document(
+        AtlasDocument doc = document(
             List.of(entity("a.A", "app", "class"), entity("a.B", "app", "class"), entity("a.C", "app", "class")),
             List.of(
                 relationship("a.A", "a.B", "USES", 1.0),
@@ -32,7 +32,7 @@ class GraphAnalyzerTest {
 
     @Test
     void sccDetectsDirectedCyclesOnly() {
-        JavaStructDocument doc = document(
+        AtlasDocument doc = document(
             List.of(entity("a.A", "app", "class"), entity("a.B", "app", "class"), entity("a.C", "app", "class")),
             List.of(
                 relationship("a.A", "a.B", "USES", 1.0),
@@ -48,7 +48,7 @@ class GraphAnalyzerTest {
 
     @Test
     void sccReturnsNoCyclesForAcyclicGraph() {
-        JavaStructDocument doc = document(
+        AtlasDocument doc = document(
             List.of(entity("a.A", "app", "class"), entity("a.B", "app", "class"), entity("a.C", "app", "class")),
             List.of(
                 relationship("a.A", "a.B", "USES", 1.0),
@@ -60,7 +60,7 @@ class GraphAnalyzerTest {
 
     @Test
     void martinMetricsClassifiesAiMatrixQuadrants() {
-        JavaStructDocument doc = document(
+        AtlasDocument doc = document(
             List.of(
                 entity("pain.Concrete", "pain", "class"),
                 entity("useless.Api", "useless", "interface"),
@@ -89,7 +89,7 @@ class GraphAnalyzerTest {
 
     @Test
     void classGraphAggregatesDuplicateRelationshipWeightsAndDegrees() {
-        JavaStructDocument doc = document(
+        AtlasDocument doc = document(
             List.of(entity("a.A", "app", "class"), entity("a.B", "app", "class")),
             List.of(
                 relationship("a.A", "a.B", "USES", 1.0),
@@ -103,8 +103,8 @@ class GraphAnalyzerTest {
         assertEquals(1, analyzer.degrees(graph).get("a.A")[1]);
     }
 
-    private static JavaStructDocument document(List<EntityFingerprint> entities, List<Relationship> relationships) {
-        JavaStructDocument doc = new JavaStructDocument();
+    private static AtlasDocument document(List<EntityFingerprint> entities, List<Relationship> relationships) {
+        AtlasDocument doc = new AtlasDocument();
         doc.entities.addAll(entities);
         doc.relationships.addAll(relationships);
         return doc;

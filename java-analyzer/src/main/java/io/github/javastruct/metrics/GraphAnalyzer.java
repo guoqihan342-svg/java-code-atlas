@@ -1,8 +1,8 @@
-package io.github.javastruct.metrics;
+package io.github.javacodeatlas.metrics;
 
-import io.github.javastruct.model.JavaStructDocument;
-import io.github.javastruct.model.EntityFingerprint;
-import io.github.javastruct.model.Relationship;
+import io.github.javacodeatlas.model.AtlasDocument;
+import io.github.javacodeatlas.model.EntityFingerprint;
+import io.github.javacodeatlas.model.Relationship;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -14,9 +14,9 @@ import org.jgrapht.graph.DefaultDirectedWeightedGraph;
 import org.jgrapht.graph.DefaultWeightedEdge;
 
 public class GraphAnalyzer {
-    private final JavaStructDocument doc;
+    private final AtlasDocument doc;
 
-    public GraphAnalyzer(JavaStructDocument doc) {
+    public GraphAnalyzer(AtlasDocument doc) {
         this.doc = doc;
     }
 

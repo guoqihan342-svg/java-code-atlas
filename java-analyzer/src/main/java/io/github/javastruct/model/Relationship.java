@@ -1,4 +1,4 @@
-package io.github.javastruct.model;
+package io.github.javacodeatlas.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

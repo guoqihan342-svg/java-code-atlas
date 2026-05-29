@@ -1,1 +1,1 @@
-"""Web server components for JavaStruct."""
+"""Web server components for Java Code Atlas."""

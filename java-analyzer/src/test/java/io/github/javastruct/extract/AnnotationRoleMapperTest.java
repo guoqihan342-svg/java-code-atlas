@@ -1,4 +1,4 @@
-package io.github.javastruct.extract;
+package io.github.javacodeatlas.extract;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
