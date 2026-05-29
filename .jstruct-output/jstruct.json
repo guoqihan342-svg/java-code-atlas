@@ -1,7 +1,7 @@
 {
   "jstruct": {
     "version": "1.0.0",
-    "generatedAt": "2026-05-29T11:29:36.331823613Z",
+    "generatedAt": "2026-05-29T12:07:27.839039155Z",
     "project": "mall",
     "jdkVersion": "17",
     "totalModules": 7,
@@ -20051,7 +20051,7 @@
   "metrics": {
     "jstruct": {
       "version": "1.0.0",
-      "generatedAt": "2026-05-29T11:29:36.331823613Z",
+      "generatedAt": "2026-05-29T12:07:27.839039155Z",
       "project": "mall",
       "jdkVersion": "17",
       "totalModules": 7,
