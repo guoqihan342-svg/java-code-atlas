@@ -1,6 +1,6 @@
-# Java Code Atlas v0.2 — Windows 版
+# Jig v0.2 — Windows 版
 
-> 多仓 Java Spring 代码结构图谱 · 边改代码边看图 · 人读优先
+> Java Insight Graph · 代码结构图谱 · 边改代码边看图
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Architecture](https://img.shields.io/badge/arch-v0.2-blue)]()
@@ -13,7 +13,7 @@
 
 ## 一句话
 
-**`atlas serve` → 启动 Web 服务 → 浏览器打开** → 边改代码边看图谱自动刷新。
+**`jig serve` → 启动 Web 服务 → 浏览器打开** → 边改代码边看图谱自动刷新。
 
 ---
 
@@ -45,9 +45,9 @@ python atlas.py serve
 
 | 命令 | 说明 |
 |------|------|
-| `atlas serve` | 启动 Web + Watch，边改代码边看图（日常开发） |
-| `atlas scan` | 一次性扫描 → 生成静态报告（CI/CD） |
-| `atlas dump --format json` | 输出纯数据 JSON（给下游 Agent，Phase 5） |
+| `jig serve` | 启动 Web + Watch，边改代码边看图（日常开发） |
+| `jig scan` | 一次性扫描 → 生成静态报告（CI/CD） |
+| `jig dump --format json` | 输出纯数据 JSON（给下游 Agent，Phase 5） |
 
 ---
 
