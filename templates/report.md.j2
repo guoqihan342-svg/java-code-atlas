@@ -1,0 +1,40 @@
+# {{ meta.project | default("Java Code Atlas") }} 架构报告
+
+生成时间: {{ meta.generated_at | default(meta.generatedAt, true) | default("-", true) }}
+
+## 架构概览
+
+- 模块数: {{ meta.totalModules | default(modules | length, true) }}
+- 类数量: {{ meta.totalEntities | default(entities | length, true) }}
+- 关系数: {{ meta.totalRelationships | default(relationships | length, true) }}
+- 环依赖: {{ cycles | length }}
+
+## 热点 Top10
+
+{% if hotspots %}
+| 排名 | 类 | 分数 |
+|---:|---|---:|
+{% for item in hotspots %}
+| {{ loop.index }} | {{ item.fqn | default(item.class, true) }} | {{ item.score | default(item.hotspotScore, true) | default("-", true) }} |
+{% endfor %}
+{% else %}
+暂无热点数据。
+{% endif %}
+
+## A/I 模块矩阵
+
+{% if martin %}
+| 模块 | Ca | Ce | I | A | D | Zone |
+|---|---:|---:|---:|---:|---:|---|
+{% for item in martin %}
+| {{ item.module }} | {{ item.ca | default("-", true) }} | {{ item.ce | default("-", true) }} | {{ "%.2f"|format(item.instability | default(0, true)) }} | {{ "%.2f"|format(item.abstractness | default(0, true)) }} | {{ "%.2f"|format(item.distance | default(0, true)) }} | {{ item.zone | default("-", true) }} |
+{% endfor %}
+{% else %}
+暂无 A/I 度量数据。
+{% endif %}
+
+## 重构建议
+
+{% for item in recommendations %}
+- {{ item }}
+{% endfor %}

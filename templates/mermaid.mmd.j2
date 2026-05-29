@@ -1,0 +1,19 @@
+%% {{ project }}
+
+flowchart LR
+{% if module_graph %}
+{% for edge in module_graph %}
+  {{ edge.source | replace("-", "_") | replace(".", "_") }} -->|{{ edge.weight }}| {{ edge.target | replace("-", "_") | replace(".", "_") }}
+{% endfor %}
+{% else %}
+  empty["No module dependencies"]
+{% endif %}
+
+classDiagram
+{% if class_graph %}
+{% for edge in class_graph %}
+  {{ edge.source }} --> {{ edge.target }} : {{ edge.type }}
+{% endfor %}
+{% else %}
+  class Empty
+{% endif %}
