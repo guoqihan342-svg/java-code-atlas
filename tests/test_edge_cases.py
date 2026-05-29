@@ -22,12 +22,12 @@ def _build_classpath():
 
 def _is_runnable_analyzer():
     """Verify the analyzer can be invoked via java -cp."""
-    main_class = str(REPO_ROOT / "java-analyzer" / "target" / "classes" / "io" / "github" / "jstruct" / "AnalyzerCli.class")
+    main_class = str(REPO_ROOT / "java-analyzer" / "target" / "classes" / "io" / "github" / "java_struct" / "AnalyzerCli.class")
     if not Path(main_class).exists():
         return False
     # Quick smoke test: --help should work
     result = subprocess.run(
-        ["java", "-cp", _build_classpath(), "io.github.jstruct.AnalyzerCli", "analyze", "--help"],
+        ["java", "-cp", _build_classpath(), "io.github.javastruct.AnalyzerCli", "analyze", "--help"],
         text=True,
         capture_output=True,
         timeout=15,
@@ -37,7 +37,7 @@ def _is_runnable_analyzer():
 
 
 @pytest.fixture(scope="session")
-def jstruct_jar():
+def java_struct_jar():
     """Returns the classpath string (not a JAR path — we use java -cp, not java -jar)."""
     if shutil.which("java") is None:
         pytest.skip("java is not available")
@@ -71,16 +71,16 @@ def pom(artifact_id, packaging="jar", modules=None, extra_properties=""):
     """
 
 
-def run_analyze(jstruct_jar, project_root, output=None, timeout=30):
-    """jstruct_jar is the classpath string (java -cp, not java -jar)."""
-    output = output or project_root / "jstruct.json"
+def run_analyze(java_struct_jar, project_root, output=None, timeout=30):
+    """java_struct_jar is the classpath string (java -cp, not java -jar)."""
+    output = output or project_root / "java_struct.json"
     start = time.monotonic()
     result = subprocess.run(
         [
             "java",
             "-cp",
-            jstruct_jar,
-            "io.github.jstruct.AnalyzerCli",
+            java_struct_jar,
+            "io.github.javastruct.AnalyzerCli",
             "analyze",
             "--root",
             str(project_root),
@@ -99,18 +99,18 @@ def run_analyze(jstruct_jar, project_root, output=None, timeout=30):
     return json.loads(output.read_text(encoding="utf-8")), output, runtime, result
 
 
-def run_metrics(jstruct_jar, jstruct_json, output=None, timeout=30):
-    """jstruct_jar is the classpath string."""
-    output = output or jstruct_json.with_name("jstruct-metrics.json")
+def run_metrics(java_struct_jar, java_struct_json, output=None, timeout=30):
+    """java_struct_jar is the classpath string."""
+    output = output or java_struct_json.with_name("java_struct-metrics.json")
     result = subprocess.run(
         [
             "java",
             "-cp",
-            jstruct_jar,
-            "io.github.jstruct.AnalyzerCli",
+            java_struct_jar,
+            "io.github.javastruct.AnalyzerCli",
             "metrics",
             "--input",
-            str(jstruct_json),
+            str(java_struct_json),
             "--output",
             str(output),
         ],
@@ -331,9 +331,9 @@ CASES = [
 
 
 @pytest.mark.parametrize("case_name,builder", CASES)
-def test_edge_case_projects(jstruct_jar, tmp_path, case_name, builder):
+def test_edge_case_projects(java_struct_jar, tmp_path, case_name, builder):
     project = builder(tmp_path)
-    doc, jstruct_json, runtime, _ = run_analyze(jstruct_jar, project)
+    doc, java_struct_json, runtime, _ = run_analyze(java_struct_jar, project)
 
     # Normalize: analyzer omits empty arrays, ensure keys always exist
     doc.setdefault("modules", [])
@@ -348,9 +348,9 @@ def test_edge_case_projects(jstruct_jar, tmp_path, case_name, builder):
         assert doc.get("modules", []) == []
         assert doc.get("entities", []) == []
         assert doc.get("relationships", []) == []
-        assert doc["jstruct"]["totalModules"] == 0
-        assert doc["jstruct"]["totalEntities"] == 0
-        assert doc["jstruct"]["totalRelationships"] == 0
+        assert doc["java_struct"]["totalModules"] == 0
+        assert doc["java_struct"]["totalEntities"] == 0
+        assert doc["java_struct"]["totalRelationships"] == 0
 
     elif case_name == "single_class":
         assert len(doc["entities"]) == 1
@@ -361,7 +361,7 @@ def test_edge_case_projects(jstruct_jar, tmp_path, case_name, builder):
     elif case_name == "circular":
         assert len(doc["entities"]) == 2
         assert len(doc["relationships"]) == 2
-        metrics = run_metrics(jstruct_jar, jstruct_json)
+        metrics = run_metrics(java_struct_jar, java_struct_json)
         assert len(metrics["classCycles"]) == 1
         assert metrics["classCycles"][0]
 
@@ -390,7 +390,7 @@ def test_edge_case_projects(jstruct_jar, tmp_path, case_name, builder):
         assert entity["methods"] >= 200
 
     elif case_name == "jdk_versions":
-        assert doc["jstruct"]["jdkVersion"] == "21"
+        assert doc["java_struct"]["jdkVersion"] == "21"
 
     elif case_name == "regression":
         assert module_names(doc) == {"core", "api", "plain"}
@@ -398,37 +398,37 @@ def test_edge_case_projects(jstruct_jar, tmp_path, case_name, builder):
         assert "ar" not in {module["type"] for module in doc["modules"]}
 
 
-def test_mall_stress_regression(jstruct_jar, tmp_path):
+def test_mall_stress_regression(java_struct_jar, tmp_path):
     mall = Path("/tmp/mall")
     if not mall.exists():
         pytest.skip("/tmp/mall is not available")
 
-    doc, jstruct_json, runtime, result = run_analyze(
-        jstruct_jar,
+    doc, java_struct_json, runtime, result = run_analyze(
+        java_struct_jar,
         mall,
-        output=tmp_path / "mall-jstruct.json",
+        output=tmp_path / "mall-java_struct.json",
         timeout=30,
     )
 
-    assert doc["jstruct"]["totalEntities"] == 519
-    assert jstruct_json.stat().st_size < 1_000_000
+    assert doc["java_struct"]["totalEntities"] == 519
+    assert java_struct_json.stat().st_size < 1_000_000
     assert runtime < 30
     assert "OutOfMemoryError" not in result.stderr
 
 
 @pytest.mark.slow
-def test_yudao_cloud_full_stress(jstruct_jar, tmp_path):
+def test_yudao_cloud_full_stress(java_struct_jar, tmp_path):
     yudao = Path("/tmp/yudao-cloud")
     if not yudao.exists():
         pytest.skip("/tmp/yudao-cloud is not available")
 
-    doc, jstruct_json, _, result = run_analyze(
-        jstruct_jar,
+    doc, java_struct_json, _, result = run_analyze(
+        java_struct_jar,
         yudao,
-        output=tmp_path / "yudao-cloud-jstruct.json",
+        output=tmp_path / "yudao-cloud-java_struct.json",
         timeout=180,
     )
 
-    assert doc["jstruct"]["totalEntities"] >= 4_700
-    assert jstruct_json.stat().st_size < 10_000_000
+    assert doc["java_struct"]["totalEntities"] >= 4_700
+    assert java_struct_json.stat().st_size < 10_000_000
     assert "OutOfMemoryError" not in result.stderr

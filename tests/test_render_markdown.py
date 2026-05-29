@@ -3,16 +3,16 @@ from __future__ import annotations
 from src.render.markdown import MarkdownRenderer
 
 
-def test_markdown_report_generation(sample_jstruct_data: dict):
-    report = MarkdownRenderer().render(sample_jstruct_data)
+def test_markdown_report_generation(sample_java_struct_data: dict):
+    report = MarkdownRenderer().render(sample_java_struct_data)
 
     assert "# sample-project 架构报告" in report
     assert "## 架构概览" in report
     assert "## 重构建议" in report
 
 
-def test_headers_and_tables_are_correctly_formatted(sample_jstruct_data: dict):
-    report = MarkdownRenderer().render(sample_jstruct_data)
+def test_headers_and_tables_are_correctly_formatted(sample_java_struct_data: dict):
+    report = MarkdownRenderer().render(sample_java_struct_data)
 
     assert "| 排名 | 类 | 分数 |" in report
     assert "|---:|---|---:|" in report

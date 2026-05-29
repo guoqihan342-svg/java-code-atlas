@@ -12,11 +12,11 @@ def test_empty_sources_list_raises_for_multi_project(tmp_path: Path, monkeypatch
     monkeypatch.chdir(tmp_path)
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    (config_dir / "jstruct.yaml").write_text("sources: {config_file: config/sources.yaml}\nllm: {enabled: false}\n", encoding="utf-8")
+    (config_dir / "java_struct.yaml").write_text("sources: {config_file: config/sources.yaml}\nllm: {enabled: false}\n", encoding="utf-8")
     (config_dir / "sources.yaml").write_text("type: multi-project\nprojects: []\n", encoding="utf-8")
 
     with pytest.raises(ConfigError, match="multi-project"):
-        ConfigLoader.load("config/jstruct.yaml")
+        ConfigLoader.load("config/java_struct.yaml")
 
 
 def test_jdk_version_detection_from_pom_xml(tmp_path: Path, sample_config: dict, monkeypatch: pytest.MonkeyPatch, valid_pom_content: str):

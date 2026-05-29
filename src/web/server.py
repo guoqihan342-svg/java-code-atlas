@@ -1,4 +1,4 @@
-"""aiohttp web server for JStruct."""
+"""aiohttp web server for JavaStruct."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from src.render.mermaid import MermaidRenderer
 from src.web.websocket import WebSocketManager
 
 
-class JStructServer:
-    """Serve the interactive JStruct UI and JSON APIs."""
+class JavaStructServer:
+    """Serve the interactive JavaStruct UI and JSON APIs."""
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.app = web.Application()
-        self.jstruct_data: dict[str, Any] | None = None
+        self.java_struct_data: dict[str, Any] | None = None
         self.status = "idle"
         self.error: str | None = None
         self._scan_lock = asyncio.Lock()
@@ -34,8 +34,8 @@ class JStructServer:
     def _setup_routes(self) -> None:
         self.app.router.add_get("/", self._index)
         self.app.router.add_static("/static/", Path("templates"), name="static")
-        self.app.router.add_get("/api/jstruct", self._jstruct_json)
-        self.app.router.add_get("/api/jstruct.json", self._jstruct_json)
+        self.app.router.add_get("/api/java_struct", self._java_struct_json)
+        self.app.router.add_get("/api/java_struct.json", self._java_struct_json)
         self.app.router.add_get("/api/status", self._status)
         self.app.router.add_post("/api/reload", self._reload)
         self.app.router.add_get("/ws", self._websocket)
@@ -44,10 +44,10 @@ class JStructServer:
         html = HtmlRenderer().render(self.config)
         return web.Response(text=html, content_type="text/html")
 
-    async def _jstruct_json(self, request: web.Request) -> web.Response:
-        if not self.jstruct_data:
+    async def _java_struct_json(self, request: web.Request) -> web.Response:
+        if not self.java_struct_data:
             raise web.HTTPNotFound(text="图谱尚未生成")
-        return web.json_response(self.jstruct_data)
+        return web.json_response(self.java_struct_data)
 
     async def _status(self, request: web.Request) -> web.Response:
         return web.json_response({"status": self.status, "error": self.error})
@@ -83,7 +83,7 @@ class JStructServer:
         await site.start()
 
         url = f"http://{host}:{port}"
-        print(f"\nJStruct -> {url}")
+        print(f"\nJavaStruct -> {url}")
         print(f"监控目录: {self._watch_description()}")
         print(f"Watch 模式: {'启用' if self.config['serve'].get('watch') else '关闭'}\n")
 
@@ -110,16 +110,16 @@ class JStructServer:
                 await self.ws.broadcast({"type": "status", "status": "scanning"})
             try:
                 analyzer = JavaAnalyzer(self.config)
-                jstruct = await asyncio.to_thread(analyzer.scan)
-                self.jstruct_data = jstruct
-                self._write_reports(jstruct)
+                java_struct = await asyncio.to_thread(analyzer.scan)
+                self.java_struct_data = java_struct
+                self._write_reports(java_struct)
                 self.status = "done"
                 if broadcast:
                     await self.ws.broadcast(
                         {
                             "type": "full-reload",
                             "changed_path": changed_path,
-                            "jstruct": jstruct.get("jstruct", {}),
+                            "java_struct": java_struct.get("java_struct", {}),
                         }
                     )
             except Exception as exc:
@@ -127,20 +127,20 @@ class JStructServer:
                 self.error = str(exc)
                 if broadcast:
                     await self.ws.broadcast({"type": "error", "error": self.error})
-                if self.jstruct_data is None:
+                if self.java_struct_data is None:
                     raise
 
-    def _write_reports(self, jstruct: dict[str, Any]) -> None:
+    def _write_reports(self, java_struct: dict[str, Any]) -> None:
         output_dir = Path(self.config["output"]["dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
         formats = set(self.config.get("output", {}).get("formats", []))
-        (output_dir / "jstruct.json").write_text(json.dumps(jstruct, ensure_ascii=False, indent=2), encoding="utf-8")
+        (output_dir / "java_struct.json").write_text(json.dumps(java_struct, ensure_ascii=False, indent=2), encoding="utf-8")
         if "html" in formats:
             HtmlRenderer().write(output_dir / "graph.html", self.config)
         if "md" in formats:
-            MarkdownRenderer().write(jstruct, output_dir / "report.md")
+            MarkdownRenderer().write(java_struct, output_dir / "report.md")
         if "mmd" in formats:
-            MermaidRenderer().write(jstruct, output_dir / "mermaid.mmd")
+            MermaidRenderer().write(java_struct, output_dir / "mermaid.mmd")
 
     def _watch_description(self) -> str:
         if self.config["serve"].get("watch_dirs"):

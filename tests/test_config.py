@@ -7,8 +7,8 @@ import pytest
 from src.config import ConfigError, ConfigLoader
 
 
-def test_load_jstruct_example_sections():
-    data = ConfigLoader._load_yaml("config/jstruct.yaml.example")
+def test_load_java_struct_example_sections():
+    data = ConfigLoader._load_yaml("config/java_struct.yaml.example")
 
     for section in ("version", "project", "sources", "java", "llm", "output"):
         assert section in data
@@ -32,27 +32,27 @@ def test_load_sources_example_fields():
     assert isinstance(data["modules"], list)
 
 
-def test_load_defaults_when_jstruct_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_files: Path):
+def test_load_defaults_when_java_struct_file_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config_files: Path):
     monkeypatch.chdir(tmp_path)
 
-    config = ConfigLoader.load("config/missing-jstruct.yaml")
+    config = ConfigLoader.load("config/missing-java_struct.yaml")
 
-    assert config["project"]["name"] == "jstruct"
+    assert config["project"]["name"] == "java_struct"
     assert config["sources"]["root"] == "/tmp/project"
-    assert config["output"]["dir"] == ".jstruct/output"
+    assert config["output"]["dir"] == ".java_struct/output"
 
 
-@pytest.mark.parametrize("template", ["$JSTRUCT_TEST_KEY", "${JSTRUCT_TEST_KEY}"])
+@pytest.mark.parametrize("template", ["$JAVA_STRUCT_TEST_KEY", "${JAVA_STRUCT_TEST_KEY}"])
 def test_env_var_substitution(template: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("JSTRUCT_TEST_KEY", "resolved-key")
+    monkeypatch.setenv("JAVA_STRUCT_TEST_KEY", "resolved-key")
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    (config_dir / "jstruct.yaml").write_text("sources: {config_file: config/sources.yaml}\nllm: {config_file: config/model.yaml}\n", encoding="utf-8")
+    (config_dir / "java_struct.yaml").write_text("sources: {config_file: config/sources.yaml}\nllm: {config_file: config/model.yaml}\n", encoding="utf-8")
     (config_dir / "sources.yaml").write_text("type: maven-multi-module\nroot: /tmp/project\n", encoding="utf-8")
     (config_dir / "model.yaml").write_text(f"endpoint: https://example.test\nmodel: m\napi_key: {template}\n", encoding="utf-8")
 
-    config = ConfigLoader.load("config/jstruct.yaml")
+    config = ConfigLoader.load("config/java_struct.yaml")
 
     assert config["llm"]["api_key"] == "resolved-key"
 

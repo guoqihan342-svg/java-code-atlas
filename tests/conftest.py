@@ -7,9 +7,9 @@ import pytest
 
 
 @pytest.fixture
-def sample_jstruct_data() -> dict:
+def sample_java_struct_data() -> dict:
     return {
-        "jstruct": {
+        "java_struct": {
             "version": "1.0.0",
             "generated_at": "2026-05-29T00:00:00+00:00",
             "project": "sample-project",
@@ -36,9 +36,9 @@ def sample_jstruct_data() -> dict:
 
 
 @pytest.fixture
-def jstruct_file(tmp_path: Path, sample_jstruct_data: dict) -> Path:
-    path = tmp_path / "jstruct-raw.json"
-    path.write_text(json.dumps(sample_jstruct_data), encoding="utf-8")
+def java_struct_file(tmp_path: Path, sample_java_struct_data: dict) -> Path:
+    path = tmp_path / "java_struct-raw.json"
+    path.write_text(json.dumps(sample_java_struct_data), encoding="utf-8")
     return path
 
 
@@ -77,7 +77,7 @@ def sample_config(tmp_path: Path) -> dict:
 def config_files(tmp_path: Path) -> Path:
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-    (config_dir / "jstruct.yaml").write_text(
+    (config_dir / "java_struct.yaml").write_text(
         """version: 1
 project:
   name: fixture-project
@@ -89,7 +89,7 @@ llm:
   config_file: config/model.yaml
   enabled: true
 output:
-  dir: .jstruct/output
+  dir: .java_struct/output
 serve:
   host: 127.0.0.1
   port: 8765

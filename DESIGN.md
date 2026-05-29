@@ -1,4 +1,4 @@
-# JStruct — 设计文档 v0.2
+# JavaStruct — 设计文档 v0.2
 
 > 多仓 Java Spring 代码结构图谱 · 人读优先 · Agent 兼容
 >
@@ -14,7 +14,7 @@
 | **人读 vs Agent 读** | Phase 1-4 先做人读（HTML报告）| 用户原话：「先输出给人看的，后续再弄输出给 agent 看」 |
 | **配置位置** | 全部放 `config/` 目录 | 用户要求「可配置的文件尽量放到一个文件夹下面」 |
 | **多代码目录** | 默认 Maven 多模块，支持独立多项目 | 最常见 Spring 项目形态 |
-| **输出方式** | `jstruct serve` — 本地 Web + 浏览器 | 持续迭代场景的最优体验 |
+| **输出方式** | `java-struct serve` — 本地 Web + 浏览器 | 持续迭代场景的最优体验 |
 | **Watch 模式** | 内置文件监听 + WebSocket 推送 | 改代码立即可见图谱变化 |
 | **语言** | Java(解析) + Python(编排) | 不引入 Rust——瓶颈在 I/O 不在 CPU |
 | **Java 解析器** | JavaParser (JVM) | 注解/泛型/类型推断比 tree-sitter 强太多 |
@@ -24,15 +24,15 @@
 ## 1. 项目结构
 
 ```
-jstruct/
+java-struct/
 ├── config/                         # 所有可配置文件（一个文件夹）
-│   ├── jstruct.yaml                  # 主配置
+│   ├── java_struct.yaml                  # 主配置
 │   ├── model.yaml                  # LLM 模型配置
 │   └── sources.yaml                # 代码源目录配置
 │
 ├── java-analyzer/                  # Java 分析器（Maven 项目）
 │   ├── pom.xml
-│   └── src/main/java/io/github/jstruct/
+│   └── src/main/java/io/github/javastruct/
 │       ├── AnalyzerCli.java        # CLI 入口（analyze / metrics 两个子命令）
 │       ├── extract/
 │       │   ├── FingerprintExtractor.java
@@ -45,7 +45,7 @@ jstruct/
 │       │   ├── HotspotScorer.java
 │       │   └── BoundaryScorer.java
 │       ├── model/
-│       │   ├── JStructDocument.java       # 顶层 JSON schema（含版本号）
+│       │   ├── JavaStructDocument.java       # 顶层 JSON schema（含版本号）
 │       │   ├── EntityFingerprint.java
 │       │   ├── Relationship.java
 │       │   └── ModuleFingerprint.java
@@ -53,7 +53,7 @@ jstruct/
 │           ├── MavenModuleResolver.java  # NEW: 多模块识别
 │           └── JdkVersionDetector.java   # NEW: JDK 版本检测
 │
-├── jstruct.py                        # Python CLI 入口
+├── java_struct.py                        # Python CLI 入口
 ├── src/                            # Python 编排逻辑
 │   ├── __init__.py
 │   ├── cli.py                      # click 命令组
@@ -100,10 +100,10 @@ jstruct/
 
 ## 2. 配置系统
 
-### 2.1 `config/jstruct.yaml` — 主配置
+### 2.1 `config/java_struct.yaml` — 主配置
 
 ```yaml
-# JStruct 主配置 v1
+# JavaStruct 主配置 v1
 version: 1
 
 project:
@@ -123,7 +123,7 @@ llm:
   enabled: true                       # false=跳过 L4 模式识别层
 
 output:
-  dir: ".jstruct/output"                # 输出目录
+  dir: ".java_struct/output"                # 输出目录
   formats: ["html", "md", "mmd", "json"]
   human_first: true                   # true=优先生成人读格式
 
@@ -135,12 +135,12 @@ serve:
   open_browser: true                  # 自动打开浏览器
 
 cache:
-  dir: ".jstruct/cache"
+  dir: ".java_struct/cache"
   ttl_hours: 24                       # 缓存有效期
 
 logging:
   level: "info"                       # debug/info/warn/error
-  file: ".jstruct/jstruct.log"
+  file: ".java_struct/java_struct.log"
 ```
 
 ### 2.2 `config/sources.yaml` — 代码源目录
@@ -213,7 +213,7 @@ headers:                              # 额外 HTTP 头
 
 **配置优先级**：`环境变量 > config/model.yaml > 内置默认值`
 
-**为什么模型配置单拆一个文件**：安全隔离。`model.yaml` 包含密钥，可以 `.gitignore` 掉，而 `jstruct.yaml` 可以提交到仓库。
+**为什么模型配置单拆一个文件**：安全隔离。`model.yaml` 包含密钥，可以 `.gitignore` 掉，而 `java_struct.yaml` 可以提交到仓库。
 
 ---
 
@@ -223,31 +223,31 @@ headers:                              # 额外 HTTP 头
 
 | 命令 | 行为 | 适用场景 |
 |------|------|---------|
-| `jstruct serve` | 启动 Web 服务 → 扫描 → 渲染 → 浏览器打开 → 监听文件变化 → WebSocket 推送 | **日常开发，边改代码边看图** |
-| `jstruct scan` | 一次性扫描 → 生成静态报告 → 退出 | CI/CD、批量分析 |
-| `jstruct dump` | 输出纯数据 JSON | 给下游 Agent 消费（Phase 5） |
+| `java-struct serve` | 启动 Web 服务 → 扫描 → 渲染 → 浏览器打开 → 监听文件变化 → WebSocket 推送 | **日常开发，边改代码边看图** |
+| `java-struct scan` | 一次性扫描 → 生成静态报告 → 退出 | CI/CD、批量分析 |
+| `java-struct dump` | 输出纯数据 JSON | 给下游 Agent 消费（Phase 5） |
 
-### 3.2 `jstruct serve` 完整流程
+### 3.2 `java-struct serve` 完整流程
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  $ jstruct serve                                               │
+│  $ java-struct serve                                               │
 │                                                              │
-│  ① 加载 config/jstruct.yaml                                    │
+│  ① 加载 config/java_struct.yaml                                    │
 │  ② 加载 config/sources.yaml → 解析多模块                     │
 │  ③ 检测 JDK 版本（从 pom.xml / .java-version / 系统默认）    │
 │  ④ 检查 Maven 可用性（mvn --version）                        │
 │  ⑤ 构建 java-analyzer JAR（如需要）                          │
-│  ⑥ 执行全量扫描 → jstruct-raw.json                             │
-│  ⑦ 执行度量计算 → jstruct-metrics.json                         │
-│  ⑧ 执行 LLM 模式识别 → jstruct-patterns.json  (if enabled)     │
+│  ⑥ 执行全量扫描 → java-struct-raw.json                             │
+│  ⑦ 执行度量计算 → java-struct-metrics.json                         │
+│  ⑧ 执行 LLM 模式识别 → java-struct-patterns.json  (if enabled)     │
 │  ⑨ 渲染 HTML + JSON 数据文件                                 │
 │  ⑩ 启动 aiohttp 服务器（127.0.0.1:8765）                    │
 │  ⑪ 打开浏览器 → http://127.0.0.1:8765                       │
 │  ⑫ 启动 watchdog 文件监听（watch_dirs）                      │
 │                                                              │
 │  浏览器端：                                                   │
-│  · 首次加载 → 请求 /api/jstruct.json → 渲染图谱                │
+│  · 首次加载 → 请求 /api/java-struct.json → 渲染图谱                │
 │  · WebSocket 连接 → 等待增量更新                             │
 │  · 文件变化 → 增量重扫变更文件 → 局部更新图谱                │
 │  · 浏览器自动刷新受影响的视图                                │
@@ -259,7 +259,7 @@ headers:                              # 额外 HTTP 头
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/` | GET | 主页面（交互式图谱） |
-| `/api/jstruct.json` | GET | 完整图谱数据 |
+| `/api/java-struct.json` | GET | 完整图谱数据 |
 | `/api/status` | GET | 扫描状态（scanning/done/error） |
 | `/api/reload` | POST | 手动触发全量重扫 |
 | `/ws` | WS | 增量更新推送 |
@@ -295,9 +295,9 @@ class FileWatcher:
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "JStructDocument",
+  "title": "JavaStructDocument",
   "version": "1.0.0",
-  "jstruct": {
+  "java_struct": {
     "version": "1.0.0",
     "generated_at": "2026-05-29T10:30:00Z",
     "project": "my-project"
@@ -308,7 +308,7 @@ class FileWatcher:
 }
 ```
 
-**版本约束**：Java 端输出时写入 `jstruct.version`，Python 端读取时校验。版本不匹配 → 报错 + 提示重建 JAR。
+**版本约束**：Java 端输出时写入 `java_struct.version`，Python 端读取时校验。版本不匹配 → 报错 + 提示重建 JAR。
 
 ### 4.2 `module` 字段精确定义（修复 bug#2）
 
@@ -348,12 +348,12 @@ if (annotation.isMetaAnnotatedWith("org.springframework.stereotype.Component")) 
 
 ```
 graph.html         (~50KB)  ← 纯页面框架 + JS 逻辑
-jstruct.json         (~5MB)   ← 图谱数据（独立 JSON）
-jstruct-metrics.json (~1MB)   ← 度量数据
-jstruct-patterns.json(~500KB) ← 模式识别结果
+java-struct.json         (~5MB)   ← 图谱数据（独立 JSON）
+java-struct-metrics.json (~1MB)   ← 度量数据
+java-struct-patterns.json(~500KB) ← 模式识别结果
 ```
 
-HTML 通过 `fetch('/api/jstruct.json')` 加载数据，按需请求，渐进渲染。
+HTML 通过 `fetch('/api/java-struct.json')` 加载数据，按需请求，渐进渲染。
 
 ### 5.2 四种视图不变
 
@@ -365,7 +365,7 @@ HTML 通过 `fetch('/api/jstruct.json')` 加载数据，按需请求，渐进渲
 
 ```json
 {
-  "format": "jstruct-agent-v1",
+  "format": "java_struct-agent-v1",
   "timestamp": "...",
   "summary": { "total_modules": 12, "total_classes": 3842, "hotspots": [...] },
   "modules": [{
@@ -389,7 +389,7 @@ Agent 读这个 JSON 可以直接做决策（重构优先级、影响分析、�
 
 | 原bug | 修复方案 |
 |-------|---------|
-| #1 JSON 无版本号 | `jstruct.version` 字段，解析端校验 |
+| #1 JSON 无版本号 | `java_struct.version` 字段，解析端校验 |
 | #2 module 定义模糊 | 拆为 `module` + `module_path` + `java_package` |
 | #3 组合注解未识别 | 注解 meta-annotation 解包逻辑 |
 | #4 HTML 内联 50MB | 数据外部加载 + fetch API |

@@ -1,4 +1,4 @@
-"""Click command-line interface for JStruct."""
+"""Click command-line interface for JavaStruct."""
 
 from __future__ import annotations
 
@@ -16,14 +16,14 @@ from .orchestrator import JavaAnalyzer
 from .render.html import HtmlRenderer
 from .render.markdown import MarkdownRenderer
 from .render.mermaid import MermaidRenderer
-from .web.server import JStructServer
+from .web.server import JavaStructServer
 
 console = Console()
 
 
 @click.group()
 def cli() -> None:
-    """JStruct."""
+    """JavaStruct."""
 
 
 @cli.command()
@@ -43,7 +43,7 @@ def serve(host: str | None, port: int | None, no_browser: bool, no_watch: bool) 
         config["serve"]["open_browser"] = False
     if no_watch:
         config["serve"]["watch"] = False
-    asyncio.run(JStructServer(config).start())
+    asyncio.run(JavaStructServer(config).start())
 
 
 @cli.command()
@@ -54,8 +54,8 @@ def scan(output_dir: Path | None) -> None:
     config = ConfigLoader.load()
     if output_dir:
         config["output"]["dir"] = str(output_dir)
-    jstruct = JavaAnalyzer(config).scan()
-    _write_reports(config, jstruct)
+    java_struct = JavaAnalyzer(config).scan()
+    _write_reports(config, java_struct)
     console.print(f"[green]扫描完成[/green]: {config['output']['dir']}")
 
 
@@ -65,8 +65,8 @@ def dump(fmt: str) -> None:
     """Output pure data JSON for downstream agents."""
 
     config = ConfigLoader.load()
-    jstruct = JavaAnalyzer(config).scan()
-    click.echo(json.dumps(_agent_dump(jstruct), ensure_ascii=False, indent=2))
+    java_struct = JavaAnalyzer(config).scan()
+    click.echo(json.dumps(_agent_dump(java_struct), ensure_ascii=False, indent=2))
 
 
 @cli.group(name="config")
@@ -77,7 +77,7 @@ def config_group() -> None:
 @config_group.command("init")
 @click.option("--force", is_flag=True, help="Overwrite existing config files.")
 def config_init(force: bool) -> None:
-    """Create config/jstruct.yaml, sources.yaml, and model.yaml from examples."""
+    """Create config/java_struct.yaml, sources.yaml, and model.yaml from examples."""
 
     created = ConfigLoader.init_examples(force=force)
     if created:
@@ -103,25 +103,25 @@ def config_show() -> None:
     click.echo(yaml.safe_dump(config, allow_unicode=True, sort_keys=False))
 
 
-def _write_reports(config: dict[str, Any], jstruct: dict[str, Any]) -> None:
+def _write_reports(config: dict[str, Any], java_struct: dict[str, Any]) -> None:
     output_dir = Path(config["output"]["dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     formats = set(config.get("output", {}).get("formats", []))
-    (output_dir / "jstruct.json").write_text(json.dumps(jstruct, ensure_ascii=False, indent=2), encoding="utf-8")
+    (output_dir / "java_struct.json").write_text(json.dumps(java_struct, ensure_ascii=False, indent=2), encoding="utf-8")
     if "html" in formats:
         HtmlRenderer().write(output_dir / "graph.html", config)
     if "md" in formats:
-        MarkdownRenderer().write(jstruct, output_dir / "report.md")
+        MarkdownRenderer().write(java_struct, output_dir / "report.md")
     if "mmd" in formats:
-        MermaidRenderer().write(jstruct, output_dir / "mermaid.mmd")
+        MermaidRenderer().write(java_struct, output_dir / "mermaid.mmd")
 
 
-def _agent_dump(jstruct: dict[str, Any]) -> dict[str, Any]:
-    meta = jstruct.get("jstruct", {})
-    metrics = jstruct.get("metrics", {})
-    modules = jstruct.get("modules", [])
-    relationships = jstruct.get("relationships", [])
-    entities = jstruct.get("entities", [])
+def _agent_dump(java_struct: dict[str, Any]) -> dict[str, Any]:
+    meta = java_struct.get("java_struct", {})
+    metrics = java_struct.get("metrics", {})
+    modules = java_struct.get("modules", [])
+    relationships = java_struct.get("relationships", [])
+    entities = java_struct.get("entities", [])
     entity_module = {e.get("fqn"): e.get("module") for e in entities}
     deps_in: dict[str, set[str]] = {m.get("id") or m.get("module") or m.get("name"): set() for m in modules}
     deps_out: dict[str, set[str]] = {m.get("id") or m.get("module") or m.get("name"): set() for m in modules}
@@ -133,8 +133,8 @@ def _agent_dump(jstruct: dict[str, Any]) -> dict[str, Any]:
             deps_in.setdefault(dst, set()).add(src)
 
     return {
-        "format": "jstruct-agent-v1",
-        "jstruct_version": meta.get("version", "1.0.0"),
+        "format": "java_struct-agent-v1",
+        "java_struct_version": meta.get("version", "1.0.0"),
         "timestamp": meta.get("generated_at") or meta.get("generatedAt"),
         "project": meta.get("project"),
         "summary": {

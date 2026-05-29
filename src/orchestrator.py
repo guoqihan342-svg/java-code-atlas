@@ -17,13 +17,13 @@ class AnalyzerError(RuntimeError):
 
 
 class JavaAnalyzer:
-    """Build and invoke jstruct-analyzer commands."""
+    """Build and invoke java-struct-analyzer commands."""
 
     CURRENT_SCHEMA_VERSION = "1.0.0"
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.jar_path = Path("java-analyzer/target/jstruct-analyzer-0.2.0.jar")
+        self.jar_path = Path("java-analyzer/target/java-struct-analyzer-0.2.0.jar")
         self.jdk_version = str(config.get("java", {}).get("jdk_version") or self._detect_jdk())
         self.maven_home = str(config.get("java", {}).get("maven_home") or "")
 
@@ -49,15 +49,15 @@ class JavaAnalyzer:
         """Run analyze + metrics and merge the resulting data for web rendering."""
 
         output_dir = Path(self.config["output"]["dir"])
-        raw_path = output_dir / "jstruct-raw.json"
-        metrics_path = output_dir / "jstruct-metrics.json"
+        raw_path = output_dir / "java_struct-raw.json"
+        metrics_path = output_dir / "java_struct-metrics.json"
         raw = self.analyze(raw_path)
         metrics = self.metrics(raw_path, metrics_path)
-        jstruct = dict(raw)
-        jstruct["metrics"] = metrics.get("metrics", metrics)
-        jstruct_path = output_dir / "jstruct.json"
-        jstruct_path.write_text(json.dumps(jstruct, ensure_ascii=False, indent=2), encoding="utf-8")
-        return jstruct
+        java_struct = dict(raw)
+        java_struct["metrics"] = metrics.get("metrics", metrics)
+        java_struct_path = output_dir / "java_struct.json"
+        java_struct_path.write_text(json.dumps(java_struct, ensure_ascii=False, indent=2), encoding="utf-8")
+        return java_struct
 
     def _build_command(self, subcommand: str) -> list[str]:
         java = "java"
@@ -72,7 +72,7 @@ class JavaAnalyzer:
             classpath.extend(str(p) for p in repo.rglob("*.jar"))
         cp_sep = ";" if os.name == "nt" else ":"
         cmd = [java, "-cp", cp_sep.join(classpath),
-               "io.github.jstruct.AnalyzerCli", subcommand]
+               "io.github.javastruct.AnalyzerCli", subcommand]
 
         mvn_home = self.maven_home or os.environ.get("M2_HOME", "")
         if mvn_home:
@@ -113,7 +113,7 @@ class JavaAnalyzer:
         """Build analyzer classes with javac when they are missing."""
 
         classes_dir = self.jar_path.parent / "classes"
-        main_class = classes_dir / "io" / "github" / "jstruct" / "AnalyzerCli.class"
+        main_class = classes_dir / "io" / "github" / "java_struct" / "AnalyzerCli.class"
         if main_class.exists():
             return
 
@@ -192,21 +192,21 @@ class JavaAnalyzer:
         return ""
 
     def _validate_schema(self, data: dict[str, Any]) -> None:
-        version = data.get("jstruct", {}).get("version")
+        version = data.get("java_struct", {}).get("version")
         if version != self.CURRENT_SCHEMA_VERSION:
             raise ValueError(f"数据版本不匹配: 期望 {self.CURRENT_SCHEMA_VERSION}, 收到 {version}; 请重建 JAR")
 
 
-def fallback_empty_jstruct(config: dict[str, Any], error: str | None = None) -> dict[str, Any]:
-    """Create a valid empty JStruct document for recoverable UI states."""
+def fallback_empty_java_struct(config: dict[str, Any], error: str | None = None) -> dict[str, Any]:
+    """Create a valid empty JavaStruct document for recoverable UI states."""
 
     now = datetime.now(timezone.utc).isoformat()
-    jstruct = {
-        "jstruct": {
+    java_struct = {
+        "java_struct": {
             "version": JavaAnalyzer.CURRENT_SCHEMA_VERSION,
             "generated_at": now,
             "generatedAt": now,
-            "project": config.get("project", {}).get("name", "jstruct"),
+            "project": config.get("project", {}).get("name", "java_struct"),
             "totalModules": 0,
             "totalEntities": 0,
             "totalRelationships": 0,
@@ -217,5 +217,5 @@ def fallback_empty_jstruct(config: dict[str, Any], error: str | None = None) -> 
         "metrics": {"hotspots": [], "cycles": [], "martin": []},
     }
     if error:
-        jstruct["error"] = error
-    return jstruct
+        java_struct["error"] = error
+    return java_struct

@@ -1,1 +1,1 @@
-"""Web server components for JStruct."""
+"""Web server components for JavaStruct."""

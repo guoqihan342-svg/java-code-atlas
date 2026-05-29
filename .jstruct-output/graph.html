@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>JStruct</title>
+  <title>JavaStruct</title>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.0/dist/cytoscape.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
@@ -27,7 +27,7 @@
 </head>
 <body>
 <header>
-  <strong>JStruct</strong>
+  <strong>JavaStruct</strong>
   <span id="project-name"></span>
 </header>
 <main>
@@ -54,20 +54,20 @@
 </div>
 
 <script>
-let jstruct = null;
+let java_struct = null;
 let cy = null;
 let wsConnected = false;
 const tooltip = document.getElementById('tooltip');
 
-async function loadJStruct() {
+async function loadJavaStruct() {
   try {
-    const resp = await fetch('/api/jstruct.json');
+    const resp = await fetch('/api/java_struct.json');
     if (!resp.ok) throw new Error(await resp.text());
-    jstruct = await resp.json();
-    const meta = jstruct.jstruct || {};
+    java_struct = await resp.json();
+    const meta = java_struct.java_struct || {};
     document.getElementById('project-name').textContent = meta.project || '';
     document.getElementById('status-text').textContent =
-      `${meta.totalModules || jstruct.modules?.length || 0}模块 · ${meta.totalEntities || jstruct.entities?.length || 0}类 · ${meta.totalRelationships || jstruct.relationships?.length || 0}关系`;
+      `${meta.totalModules || java_struct.modules?.length || 0}模块 · ${meta.totalEntities || java_struct.entities?.length || 0}类 · ${meta.totalRelationships || java_struct.relationships?.length || 0}关系`;
     renderCurrentView();
     updateSummary();
     if (!wsConnected) connectWebSocket();
@@ -85,7 +85,7 @@ function connectWebSocket() {
     if (delta.type === 'incremental') {
       applyDelta(delta);
     } else if (delta.type === 'full-reload') {
-      loadJStruct();
+      loadJavaStruct();
     } else if (delta.type === 'status') {
       document.getElementById('status-text').textContent = delta.status;
     } else if (delta.type === 'error') {
@@ -110,12 +110,12 @@ function applyDelta(delta) {
 }
 
 function renderTopology() {
-  if (!jstruct) return;
+  if (!java_struct) return;
   const elements = [];
-  (jstruct.entities || []).forEach(e => {
+  (java_struct.entities || []).forEach(e => {
     elements.push({ data: { id: e.fqn, label: e.className || shortName(e.fqn), module: e.module, roles: e.roles || [] } });
   });
-  (jstruct.relationships || []).forEach((r, idx) => {
+  (java_struct.relationships || []).forEach((r, idx) => {
     if (!r.source || !r.target) return;
     elements.push({ data: { id: `${r.source}->${r.target}-${idx}`, source: r.source, target: r.target, weight: r.weight || 1, type: r.type || 'DEPENDS' } });
   });
@@ -189,8 +189,8 @@ function renderCurrentView() {
 }
 
 function updateSummary() {
-  const hotspots = jstruct.metrics?.hotspots || [];
-  const cycles = jstruct.metrics?.cycles || [];
+  const hotspots = java_struct.metrics?.hotspots || [];
+  const cycles = java_struct.metrics?.cycles || [];
   document.getElementById('summary').innerHTML = `
     <p>环依赖: ${cycles.length} 处</p>
     <p>热点类 Top3:</p>
@@ -201,7 +201,7 @@ function updateSummary() {
 function renderMatrix() {
   const svg = d3.select('#matrix');
   svg.selectAll('*').remove();
-  const data = jstruct.metrics?.martin || [];
+  const data = java_struct.metrics?.martin || [];
   const box = svg.node().getBoundingClientRect();
   const w = box.width || 800, h = box.height || 600, margin = 48;
   const x = d3.scaleLinear().domain([0,1]).range([margin, w-margin]);
@@ -222,7 +222,7 @@ function renderMatrix() {
 function renderLayers() {
   const svg = d3.select('#layers');
   svg.selectAll('*').remove();
-  const entities = jstruct.entities || [];
+  const entities = java_struct.entities || [];
   const groups = d3.group(entities, e => layerOf(e));
   const rows = Array.from(groups, ([layer, items]) => ({layer, count: items.length}));
   const box = svg.node().getBoundingClientRect();
@@ -241,7 +241,7 @@ function renderLayers() {
 function renderHotspots() {
   const svg = d3.select('#hot');
   svg.selectAll('*').remove();
-  const data = (jstruct.metrics?.hotspots || []).slice(0, 40);
+  const data = (java_struct.metrics?.hotspots || []).slice(0, 40);
   const box = svg.node().getBoundingClientRect();
   const w = box.width || 800, h = box.height || 600, margin = 40;
   const cols = Math.max(4, Math.floor((w - margin * 2) / 130));
@@ -279,7 +279,7 @@ function shortName(fqn) {
   return String(fqn || '').split('.').pop();
 }
 
-loadJStruct();
+loadJavaStruct();
 </script>
 </body>
 </html>

@@ -1,0 +1,39 @@
+# JavaStruct 主配置 v1
+# 复制此文件为 java_struct.yaml 并修改
+
+version: 1
+
+project:
+  name: "my-project"                  # 项目名
+
+sources:
+  config_file: "config/sources.yaml"  # 源码目录配置
+
+java:
+  jdk_version: ""                     # "8"|"11"|"17"|"21"|""=自动检测
+  maven_home: ""                      # Maven路径，""=从PATH找
+  maven_args: ""                      # 额外Maven参数
+
+llm:
+  config_file: "config/model.yaml"    # 模型配置
+  enabled: true
+
+output:
+  dir: ".java_struct/output"
+  formats: ["html", "md", "mmd", "json"]
+  human_first: true
+
+serve:
+  host: "127.0.0.1"
+  port: 8765
+  watch: true
+  watch_dirs: []
+  open_browser: true
+
+cache:
+  dir: ".java_struct/cache"
+  ttl_hours: 24
+
+logging:
+  level: "info"
+  file: ".java_struct/java_struct.log"

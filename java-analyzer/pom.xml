@@ -5,8 +5,8 @@
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.github.jstruct</groupId>
-  <artifactId>jstruct-analyzer</artifactId>
+  <groupId>io.github.javastruct</groupId>
+  <artifactId>java-struct-analyzer</artifactId>
   <version>0.2.0</version>
   <packaging>jar</packaging>
 
@@ -68,7 +68,7 @@
             <configuration>
               <transformers>
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>io.github.jstruct.AnalyzerCli</mainClass>
+                  <mainClass>io.github.javastruct.AnalyzerCli</mainClass>
                 </transformer>
               </transformers>
             </configuration>

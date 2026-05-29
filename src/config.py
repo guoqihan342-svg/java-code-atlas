@@ -1,4 +1,4 @@
-"""Configuration loading and validation for JStruct."""
+"""Configuration loading and validation for JavaStruct."""
 
 from __future__ import annotations
 
@@ -14,22 +14,22 @@ from yaml import YAMLError
 
 
 class ConfigError(ValueError):
-    """Raised when JStruct configuration is missing or invalid."""
+    """Raised when JavaStruct configuration is missing or invalid."""
 
 
 class ConfigLoader:
-    """Load jstruct.yaml and merge referenced source/model configuration."""
+    """Load java_struct.yaml and merge referenced source/model configuration."""
 
     CONFIG_DIR = Path("config")
 
     DEFAULTS: dict[str, Any] = {
         "version": 1,
-        "project": {"name": "jstruct"},
+        "project": {"name": "java_struct"},
         "sources": {"config_file": "config/sources.yaml"},
         "java": {"jdk_version": "", "maven_home": "", "maven_args": ""},
         "llm": {"config_file": "config/model.yaml", "enabled": True},
         "output": {
-            "dir": ".jstruct/output",
+            "dir": ".java_struct/output",
             "formats": ["html", "md", "mmd", "json"],
             "human_first": True,
         },
@@ -40,31 +40,31 @@ class ConfigLoader:
             "watch_dirs": [],
             "open_browser": True,
         },
-        "cache": {"dir": ".jstruct/cache", "ttl_hours": 24},
-        "logging": {"level": "info", "file": ".jstruct/jstruct.log"},
+        "cache": {"dir": ".java_struct/cache", "ttl_hours": 24},
+        "logging": {"level": "info", "file": ".java_struct/java_struct.log"},
     }
 
     @classmethod
-    def load(cls, config_file: str | Path = "config/jstruct.yaml") -> dict[str, Any]:
+    def load(cls, config_file: str | Path = "config/java_struct.yaml") -> dict[str, Any]:
         """Load, merge, resolve environment variables, and validate config."""
 
-        jstruct_path = Path(config_file)
-        jstruct_overrides = cls._load_yaml(jstruct_path) if jstruct_path.exists() else {}
-        jstruct = cls._merge_dicts(deepcopy(cls.DEFAULTS), jstruct_overrides)
+        java_struct_path = Path(config_file)
+        java_struct_overrides = cls._load_yaml(java_struct_path) if java_struct_path.exists() else {}
+        java_struct = cls._merge_dicts(deepcopy(cls.DEFAULTS), java_struct_overrides)
 
-        sources_ref = jstruct.get("sources", {}).get("config_file", "config/sources.yaml")
-        model_ref = jstruct.get("llm", {}).get("config_file", "config/model.yaml")
+        sources_ref = java_struct.get("sources", {}).get("config_file", "config/sources.yaml")
+        model_ref = java_struct.get("llm", {}).get("config_file", "config/model.yaml")
 
         sources = cls._load_yaml(cls._resolve_path(sources_ref))
-        llm_inline = jstruct.get("llm", {})
+        llm_inline = java_struct.get("llm", {})
         model = cls._load_yaml(cls._resolve_path(model_ref)) if cls._resolve_path(model_ref).exists() else {}
         model = cls._merge_dicts(model, {k: v for k, v in llm_inline.items() if k != "config_file"})
 
-        jstruct["sources"] = sources
-        jstruct["llm"] = model
-        jstruct = cls._resolve_env_vars(jstruct)
-        cls._validate(jstruct)
-        return jstruct
+        java_struct["sources"] = sources
+        java_struct["llm"] = model
+        java_struct = cls._resolve_env_vars(java_struct)
+        cls._validate(java_struct)
+        return java_struct
 
     @classmethod
     def init_examples(cls, force: bool = False) -> list[Path]:
@@ -72,7 +72,7 @@ class ConfigLoader:
 
         cls.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         created: list[Path] = []
-        for name in ("jstruct.yaml", "sources.yaml", "model.yaml"):
+        for name in ("java_struct.yaml", "sources.yaml", "model.yaml"):
             target = cls.CONFIG_DIR / name
             source = cls.CONFIG_DIR / f"{name}.example"
             if target.exists() and not force:
@@ -80,7 +80,7 @@ class ConfigLoader:
             if source.exists():
                 shutil.copyfile(source, target)
             else:
-                target.write_text(yaml.safe_dump(cls.DEFAULTS if name == "jstruct.yaml" else {}, sort_keys=False), encoding="utf-8")
+                target.write_text(yaml.safe_dump(cls.DEFAULTS if name == "java_struct.yaml" else {}, sort_keys=False), encoding="utf-8")
             created.append(target)
         return created
 
@@ -131,7 +131,7 @@ class ConfigLoader:
         required = ["project", "sources", "java", "output", "serve"]
         for key in required:
             if key not in config:
-                raise ConfigError(f"jstruct.yaml 缺少必填项: {key}")
+                raise ConfigError(f"java_struct.yaml 缺少必填项: {key}")
 
         sources = config["sources"]
         source_type = sources.get("type", "maven-multi-module")

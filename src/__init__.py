@@ -1,4 +1,4 @@
-"""Python orchestration package for JStruct."""
+"""Python orchestration package for JavaStruct."""
 
 __all__ = ["__version__"]
 

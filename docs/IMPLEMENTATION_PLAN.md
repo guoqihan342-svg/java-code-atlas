@@ -1,6 +1,6 @@
-# JStruct v0.2 — 实施方案
+# JavaStruct v0.2 — 实施方案
 
-> 基于 DESIGN.md v0.2 · 修复 9 个已知 bug · 新增 config/ 统一配置 · 新增 jstruct serve + Watch
+> 基于 DESIGN.md v0.2 · 修复 9 个已知 bug · 新增 config/ 统一配置 · 新增 java-struct serve + Watch
 
 ---
 
@@ -23,10 +23,10 @@ Phase 5 · Agent化    ░░░░░░░░░░░░    0%
 
 ### 0.1 配置文件模板
 
-**`config/jstruct.yaml.example`**：
+**`config/java_struct.yaml.example`**：
 
 ```yaml
-# JStruct 主配置 v1
+# JavaStruct 主配置 v1
 version: 1
 
 project:
@@ -45,7 +45,7 @@ llm:
   enabled: true
 
 output:
-  dir: ".jstruct/output"
+  dir: ".java_struct/output"
   formats: ["html", "md", "mmd", "json"]
   human_first: true
 
@@ -57,12 +57,12 @@ serve:
   open_browser: true
 
 cache:
-  dir: ".jstruct/cache"
+  dir: ".java_struct/cache"
   ttl_hours: 24
 
 logging:
   level: "info"
-  file: ".jstruct/jstruct.log"
+  file: ".java_struct/java_struct.log"
 ```
 
 **`config/sources.yaml.example`**：
@@ -95,17 +95,17 @@ api_key: "${DEEPSEEK_API_KEY}"
 headers: {}
 ```
 
-### 0.2 `jstruct.py config` 命令
+### 0.2 `java_struct.py config` 命令
 
 ```bash
 # 交互式生成配置
-python jstruct.py config init
+python java_struct.py config init
 
 # 验证已有配置
-python jstruct.py config validate
+python java_struct.py config validate
 
 # 显示当前配置
-python jstruct.py config show
+python java_struct.py config show
 ```
 
 ### 0.3 配置加载逻辑 (Python)
@@ -122,14 +122,14 @@ class ConfigLoader:
 
     @classmethod
     def load(cls) -> dict[str, Any]:
-        jstruct = cls._load_yaml("jstruct.yaml")
-        sources = cls._load_yaml(jstruct["sources"].get("config_file", "sources.yaml"))
-        model = cls._load_yaml(jstruct["llm"].get("config_file", "model.yaml"))
-        jstruct["sources"] = sources
-        jstruct["llm"] = model
-        cls._resolve_env_vars(jstruct)
-        cls._validate(jstruct)
-        return jstruct
+        java_struct = cls._load_yaml("java_struct.yaml")
+        sources = cls._load_yaml(java_struct["sources"].get("config_file", "sources.yaml"))
+        model = cls._load_yaml(java_struct["llm"].get("config_file", "model.yaml"))
+        java_struct["sources"] = sources
+        java_struct["llm"] = model
+        cls._resolve_env_vars(java_struct)
+        cls._validate(java_struct)
+        return java_struct
 
     @classmethod
     def _load_yaml(cls, filename: str) -> dict:
@@ -159,7 +159,7 @@ class ConfigLoader:
         required = ["project", "sources", "java", "output", "serve"]
         for key in required:
             if key not in config:
-                raise ValueError(f"jstruct.yaml 缺少必填项: {key}")
+                raise ValueError(f"java_struct.yaml 缺少必填项: {key}")
         if "root" not in config["sources"]:
             raise ValueError("sources.yaml 缺少 root")
 ```
@@ -180,8 +180,8 @@ class ConfigLoader:
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.github.jstruct</groupId>
-  <artifactId>jstruct-analyzer</artifactId>
+  <groupId>io.github.javastruct</groupId>
+  <artifactId>java-struct-analyzer</artifactId>
   <version>0.2.0</version>
   <packaging>jar</packaging>
 
@@ -243,7 +243,7 @@ class ConfigLoader:
               <transformers>
                 <transformer
                   implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>io.github.jstruct.AnalyzerCli</mainClass>
+                  <mainClass>io.github.javastruct.AnalyzerCli</mainClass>
                 </transformer>
               </transformers>
             </configuration>
@@ -258,7 +258,7 @@ class ConfigLoader:
 ### 1.2 MavenModuleResolver (修复 bug#5)
 
 ```java
-package io.github.jstruct.util;
+package io.github.javastruct.util;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -356,7 +356,7 @@ public class MavenModuleResolver {
 ### 1.3 JDK 版本检测 (修复 bug#6)
 
 ```java
-package io.github.jstruct.util;
+package io.github.javastruct.util;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -425,7 +425,7 @@ public class JdkVersionDetector {
 ### 1.4 EntityFingerprint 数据类 (修复 bug#2)
 
 ```java
-package io.github.jstruct.model;
+package io.github.javastruct.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -480,7 +480,7 @@ public class EntityFingerprint {
 ### 1.5 注解角色映射 (修复 bug#3, #9)
 
 ```java
-package io.github.jstruct.extract;
+package io.github.javastruct.extract;
 
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import java.util.*;
@@ -558,24 +558,24 @@ public class AnnotationRoleMapper {
 }
 ```
 
-### 1.6 JStructDocument — JSON schema 版本化 (修复 bug#1)
+### 1.6 JavaStructDocument — JSON schema 版本化 (修复 bug#1)
 
 ```java
-package io.github.jstruct.model;
+package io.github.javastruct.model;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.*;
 
-@JsonPropertyOrder({"jstruct", "modules", "entities", "relationships"})
-public class JStructDocument {
+@JsonPropertyOrder({"java_struct", "modules", "entities", "relationships"})
+public class JavaStructDocument {
     public static final String CURRENT_VERSION = "1.0.0";
 
-    public JStructMeta jstruct;
+    public JavaStructMeta java_struct;
     public List<ModuleFingerprint> modules;
     public List<EntityFingerprint> entities;
     public List<Relationship> relationships;
 
-    public static class JStructMeta {
+    public static class JavaStructMeta {
         public String version;           // 数据契约版本号
         public String generatedAt;
         public String project;
@@ -600,7 +600,7 @@ from .config import ConfigLoader
 class JavaAnalyzer:
     def __init__(self, config: dict):
         self.config = config
-        self.jar_path = Path("java-analyzer/target/jstruct-analyzer-0.2.0.jar")
+        self.jar_path = Path("java-analyzer/target/java-struct-analyzer-0.2.0.jar")
         self.jdk_version = config["java"].get("jdk_version") or self._detect_jdk()
         self.maven_home = config["java"].get("maven_home", "")
 
@@ -646,9 +646,9 @@ class JavaAnalyzer:
         with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         # 校验版本
-        if data["jstruct"]["version"] != "1.0.0":
+        if data["java_struct"]["version"] != "1.0.0":
             raise ValueError(
-                f"数据版本不匹配: 期望 1.0.0, 收到 {data['jstruct']['version']}")
+                f"数据版本不匹配: 期望 1.0.0, 收到 {data['java_struct']['version']}")
         return data
 ```
 
@@ -659,9 +659,9 @@ class JavaAnalyzer:
 ### 2.1 JGraphT 图构建
 
 ```java
-package io.github.jstruct.metrics;
+package io.github.javastruct.metrics;
 
-import io.github.jstruct.model.*;
+import io.github.javastruct.model.*;
 import org.jgrapht.Graph;
 import org.jgrapht.graph.*;
 import org.jgrapht.alg.scoring.*;
@@ -669,9 +669,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class GraphAnalyzer {
-    private final JStructDocument doc;
+    private final JavaStructDocument doc;
 
-    public GraphAnalyzer(JStructDocument doc) { this.doc = doc; }
+    public GraphAnalyzer(JavaStructDocument doc) { this.doc = doc; }
 
     // === 类级图 ===
     public Graph<String, DefaultWeightedEdge> classGraph() {
@@ -1034,17 +1034,17 @@ import webbrowser
 from pathlib import Path
 from aiohttp import web
 
-class JStructServer:
+class JavaStructServer:
     def __init__(self, config: dict):
         self.config = config
         self.app = web.Application()
-        self.jstruct_data = None     # 当前图谱数据
+        self.java_struct_data = None     # 当前图谱数据
         self.status = "idle"
         self._setup_routes()
 
     def _setup_routes(self):
         self.app.router.add_get("/", self._index)
-        self.app.router.add_get("/api/jstruct.json", self._jstruct_json)
+        self.app.router.add_get("/api/java-struct.json", self._java_struct_json)
         self.app.router.add_get("/api/status", self._status)
         self.app.router.add_post("/api/reload", self._reload)
         self.app.router.add_get("/ws", self._websocket)
@@ -1053,10 +1053,10 @@ class JStructServer:
         template = Path("templates/graph.html.j2").read_text()
         return web.Response(text=template, content_type="text/html")
 
-    async def _jstruct_json(self, request):
-        if not self.jstruct_data:
+    async def _java_struct_json(self, request):
+        if not self.java_struct_data:
             raise web.HTTPNotFound(text="图谱尚未生成")
-        return web.json_response(self.jstruct_data)
+        return web.json_response(self.java_struct_data)
 
     async def _status(self, request):
         return web.json_response({"status": self.status})
@@ -1091,7 +1091,7 @@ class JStructServer:
         await site.start()
 
         url = f"http://{host}:{port}"
-        print(f"\n  📊 JStruct → {url}")
+        print(f"\n  📊 JavaStruct → {url}")
         print(f"  📁 监控目录: {self.config['sources']['root']}")
         print(f"  🔄 Watch 模式: {'启用' if self.config['serve']['watch'] else '关闭'}\n")
 
@@ -1162,7 +1162,7 @@ class _Handler(FileSystemEventHandler):
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>JStruct</title>
+  <title>JavaStruct</title>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.0/dist/cytoscape.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
@@ -1191,7 +1191,7 @@ class _Handler(FileSystemEventHandler):
 </head>
 <body>
 <header>
-  <strong>📊 JStruct</strong>
+  <strong>📊 JavaStruct</strong>
   <span id="project-name"></span>
 </header>
 <main>
@@ -1219,15 +1219,15 @@ class _Handler(FileSystemEventHandler):
 
 <script>
 // === 数据加载（外部 JSON，不是内联） ===
-let jstruct = null;
+let java_struct = null;
 
-async function loadJStruct() {
+async function loadJavaStruct() {
   try {
-    const resp = await fetch('/api/jstruct.json');
-    jstruct = await resp.json();
-    document.getElementById('project-name').textContent = jstruct.jstruct.project;
+    const resp = await fetch('/api/java-struct.json');
+    java_struct = await resp.json();
+    document.getElementById('project-name').textContent = java_struct.java_struct.project;
     document.getElementById('status-text').textContent =
-      `${jstruct.jstruct.totalModules}模块 · ${jstruct.jstruct.totalEntities}类 · ${jstruct.jstruct.totalRelationships}关系`;
+      `${java_struct.java_struct.totalModules}模块 · ${java_struct.java_struct.totalEntities}类 · ${java_struct.java_struct.totalRelationships}关系`;
     renderTopology();
     updateSummary();
     connectWebSocket();
@@ -1245,7 +1245,7 @@ function connectWebSocket() {
     if (delta.type === 'incremental') {
       applyDelta(delta);
     } else if (delta.type === 'full-reload') {
-      loadJStruct();
+      loadJavaStruct();
     }
   };
 }
@@ -1266,12 +1266,12 @@ function applyDelta(delta) {
 let cy;
 function renderTopology() {
   const elements = [];
-  jstruct.entities.forEach(e => {
+  java_struct.entities.forEach(e => {
     elements.push({
       data: { id: e.fqn, label: e.className, module: e.module, roles: e.roles }
     });
   });
-  jstruct.relationships.forEach(r => {
+  java_struct.relationships.forEach(r => {
     elements.push({
       data: { id: `${r.source}->${r.target}`, source: r.source,
               target: r.target, weight: r.weight, type: r.type }
@@ -1342,15 +1342,15 @@ function switchView(view) {
   document.getElementById(view).classList.add('active');
   document.getElementById('btn-' + view).classList.add('active');
 
-  if (view === 'topo') loadJStruct();
+  if (view === 'topo') loadJavaStruct();
   else if (view === 'matrix') renderMatrix();
   else if (view === 'layers') renderLayers();
   else if (view === 'hot') renderHotspots();
 }
 
 function updateSummary() {
-  const hotspots = jstruct.metrics?.hotspots || [];
-  const cycles = jstruct.metrics?.cycles || [];
+  const hotspots = java_struct.metrics?.hotspots || [];
+  const cycles = java_struct.metrics?.cycles || [];
   document.getElementById('summary').innerHTML = `
     <div style="margin-top:20px;font-size:13px;">
       <p>🔴 环依赖: ${cycles.length} 处</p>
@@ -1366,7 +1366,7 @@ function renderMatrix() {
   // D3.js A/I 矩阵散点图
   const svg = d3.select('#matrix');
   svg.selectAll('*').remove();
-  const data = jstruct.metrics?.martin || [];
+  const data = java_struct.metrics?.martin || [];
   const w = svg.node().clientWidth, h = svg.node().clientHeight;
   const margin = 40;
   const x = d3.scaleLinear().domain([0,1]).range([margin, w-margin]);
@@ -1401,7 +1401,7 @@ function renderLayers() { /* 分层透视图 — Phase 4 实现 */ }
 function renderHotspots() { /* 热力图 — Phase 4 实现 */ }
 
 // 启动
-loadJStruct();
+loadJavaStruct();
 </script>
 </body>
 </html>
@@ -1415,8 +1415,8 @@ loadJStruct();
 
 ```json
 {
-  "format": "jstruct-agent-v1",
-  "jstruct_version": "1.0.0",
+  "format": "java_struct-agent-v1",
+  "java_struct_version": "1.0.0",
   "timestamp": "2026-05-29T10:30:00Z",
   "project": "my-project",
   "summary": {
@@ -1457,17 +1457,17 @@ loadJStruct();
 ### 5.2 Hermes Skill 封装
 
 ```python
-# hermes-skill: jstruct
-# 触发条件: cd 到 Java 项目根目录 → 自动检测 config/jstruct.yaml
-# 命令: /jstruct serve | /jstruct scan | /jstruct dump
+# hermes-skill: java_struct
+# 触发条件: cd 到 Java 项目根目录 → 自动检测 config/java_struct.yaml
+# 命令: /java-struct serve | /java-struct scan | /java-struct dump
 
-# ~/.hermes/skills/jstruct/SKILL.md 内容：
+# ~/.hermes/skills/java_struct/SKILL.md 内容：
 """
-当用户在 Java 项目根目录时，自动检测 config/jstruct.yaml 是否存在。
+当用户在 Java 项目根目录时，自动检测 config/java_struct.yaml 是否存在。
 如果存在，提供以下能力：
-  /jstruct serve  → 启动 Web 图谱服务
-  /jstruct scan  → 生成一次性报告
-  /jstruct dump  → 输出 Agent 消费 JSON
+  /java-struct serve  → 启动 Web 图谱服务
+  /java-struct scan  → 生成一次性报告
+  /java-struct dump  → 输出 Agent 消费 JSON
 
 问题示例：
   "哪些模块需要重构？"       → 查询 pain_modules
@@ -1481,7 +1481,7 @@ loadJStruct();
 ## 附录 A · 完整目录树
 
 ```
-jstruct/
+java-struct/
 ├── .gitignore
 ├── README.md
 ├── DESIGN.md
@@ -1489,11 +1489,11 @@ jstruct/
 ├── requirements.txt
 │
 ├── config/                         # 🔧 所有可配置（一个文件夹）
-│   ├── jstruct.yaml.example
+│   ├── java_struct.yaml.example
 │   ├── sources.yaml.example
 │   └── model.yaml.example
 │
-├── jstruct.py                        # CLI 入口
+├── java_struct.py                        # CLI 入口
 ├── src/                            # Python 编排
 │   ├── __init__.py
 │   ├── cli.py                      # click: serve/scan/dump/config
@@ -1506,7 +1506,7 @@ jstruct/
 │   │   └── prompts.py              # ARCHITECTURE_PROMPT, DESIGN_PATTERN_PROMPT
 │   ├── web/
 │   │   ├── __init__.py
-│   │   ├── server.py               # JStructServer (aiohttp)
+│   │   ├── server.py               # JavaStructServer (aiohttp)
 │   │   ├── watcher.py              # FileWatcher (watchdog)
 │   │   └── websocket.py            # WebSocket 增量推送
 │   └── render/
@@ -1517,7 +1517,7 @@ jstruct/
 │
 ├── java-analyzer/                  # Java 分析器 (Maven 项目)
 │   ├── pom.xml
-│   └── src/main/java/io/github/jstruct/
+│   └── src/main/java/io/github/javastruct/
 │       ├── AnalyzerCli.java        # Picocli CLI 入口
 │       ├── extract/
 │       │   ├── FingerprintExtractor.java
@@ -1527,7 +1527,7 @@ jstruct/
 │       │   ├── GraphAnalyzer.java  # 图构建+SCC+A/I+热点+边界
 │       │   └── MetricsCli.java
 │       ├── model/
-│       │   ├── JStructDocument.java
+│       │   ├── JavaStructDocument.java
 │       │   ├── EntityFingerprint.java
 │       │   ├── Relationship.java
 │       │   └── ModuleFingerprint.java
@@ -1595,8 +1595,8 @@ jstruct/
 ```bash
 mvn -f java-analyzer/pom.xml test
 pytest -q
-python jstruct.py scan tests/fixtures/spring-layered -o .jstruct-test/
-python jstruct.py serve --no-browser --port 18765 &  # 后台启动
+python java_struct.py scan tests/fixtures/spring-layered -o .java-struct-test/
+python java_struct.py serve --no-browser --port 18765 &  # 后台启动
 curl -s http://127.0.0.1:18765/api/status | grep '"status":"idle"'
 ```
 

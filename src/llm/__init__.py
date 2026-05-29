@@ -1,1 +1,1 @@
-"""LLM integration for JStruct."""
+"""LLM integration for JavaStruct."""

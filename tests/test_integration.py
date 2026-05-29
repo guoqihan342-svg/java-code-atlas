@@ -15,7 +15,7 @@ from src.render.html import HtmlRenderer
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ANALYZER_DIR = REPO_ROOT / "java-analyzer"
 PETCLINIC_DIR = Path("/tmp/spring-petclinic")
-JSTRUCT_JSON = Path("/tmp/spring-petclinic-jstruct.json")
+JAVA_STRUCT_JSON = Path("/tmp/spring-petclinic-java_struct.json")
 METRICS_JSON = Path("/tmp/spring-petclinic-metrics.json")
 SCHEMA_VERSION = "1.0.0"
 
@@ -28,10 +28,10 @@ pytestmark = [
 
 @pytest.fixture
 def output_files():
-    for path in (JSTRUCT_JSON, METRICS_JSON):
+    for path in (JAVA_STRUCT_JSON, METRICS_JSON):
         path.unlink(missing_ok=True)
-    yield JSTRUCT_JSON, METRICS_JSON
-    for path in (JSTRUCT_JSON, METRICS_JSON):
+    yield JAVA_STRUCT_JSON, METRICS_JSON
+    for path in (JAVA_STRUCT_JSON, METRICS_JSON):
         path.unlink(missing_ok=True)
 
 
@@ -92,7 +92,7 @@ def _compile_analyzer() -> str:
     if result.returncode != 0:
         pytest.fail(f"failed to compile analyzer with javac\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
 
-    analyzer_cli = classes_dir / "io/github/jstruct/AnalyzerCli.class"
+    analyzer_cli = classes_dir / "io/github/javastruct/AnalyzerCli.class"
     assert analyzer_cli.exists(), "AnalyzerCli.class was not produced by javac"
     return os.pathsep.join([str(classes_dir), deps])
 
@@ -131,7 +131,7 @@ def _metric_list(metrics: dict, *names: str) -> list:
 
 
 def test_full_pipeline_on_spring_petclinic(output_files):
-    jstruct_path, metrics_path = output_files
+    java_struct_path, metrics_path = output_files
     project = _ensure_petclinic()
     classpath = _compile_analyzer()
     _warm_petclinic_dependencies()
@@ -142,12 +142,12 @@ def test_full_pipeline_on_spring_petclinic(output_files):
             "java",
             "-cp",
             classpath,
-            "io.github.jstruct.AnalyzerCli",
+            "io.github.javastruct.AnalyzerCli",
             "analyze",
             "--root",
             str(project),
             "--output",
-            str(jstruct_path),
+            str(java_struct_path),
         ],
         cwd=ANALYZER_DIR,
         timeout=120,
@@ -156,14 +156,14 @@ def test_full_pipeline_on_spring_petclinic(output_files):
     print(f"spring-petclinic analyze took {analyze_seconds:.2f}s")
     assert analyze.returncode == 0, f"analyze failed\nSTDOUT:\n{analyze.stdout}\nSTDERR:\n{analyze.stderr}"
 
-    jstruct = _load_json(jstruct_path)
-    assert jstruct.get("jstruct", {}).get("version") == SCHEMA_VERSION
-    assert len(jstruct.get("modules") or []) >= 1
+    java_struct = _load_json(java_struct_path)
+    assert java_struct.get("java_struct", {}).get("version") == SCHEMA_VERSION
+    assert len(java_struct.get("modules") or []) >= 1
 
-    entities = jstruct.get("entities") or []
-    relationships = jstruct.get("relationships") or []
-    assert entities, "jstruct must contain entity fingerprints"
-    assert relationships, "jstruct must contain dependencies"
+    entities = java_struct.get("entities") or []
+    relationships = java_struct.get("relationships") or []
+    assert entities, "java_struct must contain entity fingerprints"
+    assert relationships, "java_struct must contain dependencies"
 
     allowed_kinds = {"CLASS", "INTERFACE", "ENUM", "class", "interface", "enum", "abstract", "record", "annotation"}
     for entity in entities:
@@ -191,10 +191,10 @@ def test_full_pipeline_on_spring_petclinic(output_files):
             "java",
             "-cp",
             classpath,
-            "io.github.jstruct.AnalyzerCli",
+            "io.github.javastruct.AnalyzerCli",
             "metrics",
             "--input",
-            str(jstruct_path),
+            str(java_struct_path),
             "--output",
             str(metrics_path),
         ],
