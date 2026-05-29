@@ -1,9 +1,13 @@
-# Java Code Atlas v0.2
+# Java Code Atlas v0.2 — Windows 版
 
 > 多仓 Java Spring 代码结构图谱 · 边改代码边看图 · 人读优先
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Architecture](https://img.shields.io/badge/arch-v0.2-blue)]()
+
+> **分支**：`windows`（主力开发） | `main`（Linux 版，维护模式）
+>
+> `main` 分支为 Linux/WSL 版本，`windows` 分支为 Windows 原生版本。
 
 ---
 
@@ -13,22 +17,25 @@
 
 ---
 
-## 快速开始
+## 快速开始 (Windows)
 
-```bash
-# 1. 创建配置
-mkdir config/
-cp config/atlas.yaml.example config/atlas.yaml
-# 编辑 sources.yaml 指向你的 Java 项目
+```powershell
+# 1. 初始化配置
+python atlas.py config init
+# 编辑 config\sources.yaml → root: "D:\你的Java项目"
 
 # 2. 安装依赖
 pip install -r requirements.txt
-mvn -f java-analyzer/pom.xml package -DskipTests
 
-# 3. 启动
+# 3. 编译 Java 分析器（不用 Maven，javac 直编）
+cd java-analyzer
+javac -cp "%USERPROFILE%\.m2\repository\*" -d target\classes src\main\java\io\github\javacodeatlas\**\*.java
+cd ..
+
+# 4. 启动
 python atlas.py serve
 
-# 浏览器自动打开 http://127.0.0.1:8765
+# 浏览器打开 http://127.0.0.1:8765
 # 修改代码 → 保存 → 图谱自动刷新
 ```
 
