@@ -1,6 +1,6 @@
-# Java Code Atlas v0.2 — 实施方案
+# JStruct v0.2 — 实施方案
 
-> 基于 DESIGN.md v0.2 · 修复 9 个已知 bug · 新增 config/ 统一配置 · 新增 atlas serve + Watch
+> 基于 DESIGN.md v0.2 · 修复 9 个已知 bug · 新增 config/ 统一配置 · 新增 jstruct serve + Watch
 
 ---
 
@@ -23,10 +23,10 @@ Phase 5 · Agent化    ░░░░░░░░░░░░    0%
 
 ### 0.1 配置文件模板
 
-**`config/atlas.yaml.example`**：
+**`config/jstruct.yaml.example`**：
 
 ```yaml
-# Java Code Atlas 主配置 v1
+# JStruct 主配置 v1
 version: 1
 
 project:
@@ -45,7 +45,7 @@ llm:
   enabled: true
 
 output:
-  dir: ".atlas/output"
+  dir: ".jstruct/output"
   formats: ["html", "md", "mmd", "json"]
   human_first: true
 
@@ -57,12 +57,12 @@ serve:
   open_browser: true
 
 cache:
-  dir: ".atlas/cache"
+  dir: ".jstruct/cache"
   ttl_hours: 24
 
 logging:
   level: "info"
-  file: ".atlas/atlas.log"
+  file: ".jstruct/jstruct.log"
 ```
 
 **`config/sources.yaml.example`**：
@@ -95,17 +95,17 @@ api_key: "${DEEPSEEK_API_KEY}"
 headers: {}
 ```
 
-### 0.2 `atlas.py config` 命令
+### 0.2 `jstruct.py config` 命令
 
 ```bash
 # 交互式生成配置
-python atlas.py config init
+python jstruct.py config init
 
 # 验证已有配置
-python atlas.py config validate
+python jstruct.py config validate
 
 # 显示当前配置
-python atlas.py config show
+python jstruct.py config show
 ```
 
 ### 0.3 配置加载逻辑 (Python)
@@ -122,14 +122,14 @@ class ConfigLoader:
 
     @classmethod
     def load(cls) -> dict[str, Any]:
-        atlas = cls._load_yaml("atlas.yaml")
-        sources = cls._load_yaml(atlas["sources"].get("config_file", "sources.yaml"))
-        model = cls._load_yaml(atlas["llm"].get("config_file", "model.yaml"))
-        atlas["sources"] = sources
-        atlas["llm"] = model
-        cls._resolve_env_vars(atlas)
-        cls._validate(atlas)
-        return atlas
+        jstruct = cls._load_yaml("jstruct.yaml")
+        sources = cls._load_yaml(jstruct["sources"].get("config_file", "sources.yaml"))
+        model = cls._load_yaml(jstruct["llm"].get("config_file", "model.yaml"))
+        jstruct["sources"] = sources
+        jstruct["llm"] = model
+        cls._resolve_env_vars(jstruct)
+        cls._validate(jstruct)
+        return jstruct
 
     @classmethod
     def _load_yaml(cls, filename: str) -> dict:
@@ -159,7 +159,7 @@ class ConfigLoader:
         required = ["project", "sources", "java", "output", "serve"]
         for key in required:
             if key not in config:
-                raise ValueError(f"atlas.yaml 缺少必填项: {key}")
+                raise ValueError(f"jstruct.yaml 缺少必填项: {key}")
         if "root" not in config["sources"]:
             raise ValueError("sources.yaml 缺少 root")
 ```
@@ -180,8 +180,8 @@ class ConfigLoader:
          https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.github.javacodeatlas</groupId>
-  <artifactId>java-code-atlas-analyzer</artifactId>
+  <groupId>io.github.jstruct</groupId>
+  <artifactId>jstruct-analyzer</artifactId>
   <version>0.2.0</version>
   <packaging>jar</packaging>
 
@@ -243,7 +243,7 @@ class ConfigLoader:
               <transformers>
                 <transformer
                   implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                  <mainClass>io.github.javacodeatlas.AnalyzerCli</mainClass>
+                  <mainClass>io.github.jstruct.AnalyzerCli</mainClass>
                 </transformer>
               </transformers>
             </configuration>
@@ -258,7 +258,7 @@ class ConfigLoader:
 ### 1.2 MavenModuleResolver (修复 bug#5)
 
 ```java
-package io.github.javacodeatlas.util;
+package io.github.jstruct.util;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -356,7 +356,7 @@ public class MavenModuleResolver {
 ### 1.3 JDK 版本检测 (修复 bug#6)
 
 ```java
-package io.github.javacodeatlas.util;
+package io.github.jstruct.util;
 
 import java.io.IOException;
 import java.nio.file.*;
@@ -425,7 +425,7 @@ public class JdkVersionDetector {
 ### 1.4 EntityFingerprint 数据类 (修复 bug#2)
 
 ```java
-package io.github.javacodeatlas.model;
+package io.github.jstruct.model;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
@@ -480,7 +480,7 @@ public class EntityFingerprint {
 ### 1.5 注解角色映射 (修复 bug#3, #9)
 
 ```java
-package io.github.javacodeatlas.extract;
+package io.github.jstruct.extract;
 
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import java.util.*;
@@ -558,24 +558,24 @@ public class AnnotationRoleMapper {
 }
 ```
 
-### 1.6 AtlasDocument — JSON schema 版本化 (修复 bug#1)
+### 1.6 JStructDocument — JSON schema 版本化 (修复 bug#1)
 
 ```java
-package io.github.javacodeatlas.model;
+package io.github.jstruct.model;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import java.util.*;
 
-@JsonPropertyOrder({"atlas", "modules", "entities", "relationships"})
-public class AtlasDocument {
+@JsonPropertyOrder({"jstruct", "modules", "entities", "relationships"})
+public class JStructDocument {
     public static final String CURRENT_VERSION = "1.0.0";
 
-    public AtlasMeta atlas;
+    public JStructMeta jstruct;
     public List<ModuleFingerprint> modules;
     public List<EntityFingerprint> entities;
     public List<Relationship> relationships;
 
-    public static class AtlasMeta {
+    public static class JStructMeta {
         public String version;           // 数据契约版本号
         public String generatedAt;
         public String project;
@@ -600,7 +600,7 @@ from .config import ConfigLoader
 class JavaAnalyzer:
     def __init__(self, config: dict):
         self.config = config
-        self.jar_path = Path("java-analyzer/target/java-code-atlas-analyzer-0.2.0.jar")
+        self.jar_path = Path("java-analyzer/target/jstruct-analyzer-0.2.0.jar")
         self.jdk_version = config["java"].get("jdk_version") or self._detect_jdk()
         self.maven_home = config["java"].get("maven_home", "")
 
@@ -646,9 +646,9 @@ class JavaAnalyzer:
         with open(output_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         # 校验版本
-        if data["atlas"]["version"] != "1.0.0":
+        if data["jstruct"]["version"] != "1.0.0":
             raise ValueError(
-                f"数据版本不匹配: 期望 1.0.0, 收到 {data['atlas']['version']}")
+                f"数据版本不匹配: 期望 1.0.0, 收到 {data['jstruct']['version']}")
         return data
 ```
 
@@ -659,9 +659,9 @@ class JavaAnalyzer:
 ### 2.1 JGraphT 图构建
 
 ```java
-package io.github.javacodeatlas.metrics;
+package io.github.jstruct.metrics;
 
-import io.github.javacodeatlas.model.*;
+import io.github.jstruct.model.*;
 import org.jgrapht.Graph;
 import org.jgrapht.graph.*;
 import org.jgrapht.alg.scoring.*;
@@ -669,9 +669,9 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class GraphAnalyzer {
-    private final AtlasDocument doc;
+    private final JStructDocument doc;
 
-    public GraphAnalyzer(AtlasDocument doc) { this.doc = doc; }
+    public GraphAnalyzer(JStructDocument doc) { this.doc = doc; }
 
     // === 类级图 ===
     public Graph<String, DefaultWeightedEdge> classGraph() {
@@ -1034,17 +1034,17 @@ import webbrowser
 from pathlib import Path
 from aiohttp import web
 
-class AtlasServer:
+class JStructServer:
     def __init__(self, config: dict):
         self.config = config
         self.app = web.Application()
-        self.atlas_data = None     # 当前图谱数据
+        self.jstruct_data = None     # 当前图谱数据
         self.status = "idle"
         self._setup_routes()
 
     def _setup_routes(self):
         self.app.router.add_get("/", self._index)
-        self.app.router.add_get("/api/atlas.json", self._atlas_json)
+        self.app.router.add_get("/api/jstruct.json", self._jstruct_json)
         self.app.router.add_get("/api/status", self._status)
         self.app.router.add_post("/api/reload", self._reload)
         self.app.router.add_get("/ws", self._websocket)
@@ -1053,10 +1053,10 @@ class AtlasServer:
         template = Path("templates/graph.html.j2").read_text()
         return web.Response(text=template, content_type="text/html")
 
-    async def _atlas_json(self, request):
-        if not self.atlas_data:
+    async def _jstruct_json(self, request):
+        if not self.jstruct_data:
             raise web.HTTPNotFound(text="图谱尚未生成")
-        return web.json_response(self.atlas_data)
+        return web.json_response(self.jstruct_data)
 
     async def _status(self, request):
         return web.json_response({"status": self.status})
@@ -1091,7 +1091,7 @@ class AtlasServer:
         await site.start()
 
         url = f"http://{host}:{port}"
-        print(f"\n  📊 Java Code Atlas → {url}")
+        print(f"\n  📊 JStruct → {url}")
         print(f"  📁 监控目录: {self.config['sources']['root']}")
         print(f"  🔄 Watch 模式: {'启用' if self.config['serve']['watch'] else '关闭'}\n")
 
@@ -1162,7 +1162,7 @@ class _Handler(FileSystemEventHandler):
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Java Code Atlas</title>
+  <title>JStruct</title>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3.30.0/dist/cytoscape.min.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
@@ -1191,7 +1191,7 @@ class _Handler(FileSystemEventHandler):
 </head>
 <body>
 <header>
-  <strong>📊 Java Code Atlas</strong>
+  <strong>📊 JStruct</strong>
   <span id="project-name"></span>
 </header>
 <main>
@@ -1219,15 +1219,15 @@ class _Handler(FileSystemEventHandler):
 
 <script>
 // === 数据加载（外部 JSON，不是内联） ===
-let atlas = null;
+let jstruct = null;
 
-async function loadAtlas() {
+async function loadJStruct() {
   try {
-    const resp = await fetch('/api/atlas.json');
-    atlas = await resp.json();
-    document.getElementById('project-name').textContent = atlas.atlas.project;
+    const resp = await fetch('/api/jstruct.json');
+    jstruct = await resp.json();
+    document.getElementById('project-name').textContent = jstruct.jstruct.project;
     document.getElementById('status-text').textContent =
-      `${atlas.atlas.totalModules}模块 · ${atlas.atlas.totalEntities}类 · ${atlas.atlas.totalRelationships}关系`;
+      `${jstruct.jstruct.totalModules}模块 · ${jstruct.jstruct.totalEntities}类 · ${jstruct.jstruct.totalRelationships}关系`;
     renderTopology();
     updateSummary();
     connectWebSocket();
@@ -1245,7 +1245,7 @@ function connectWebSocket() {
     if (delta.type === 'incremental') {
       applyDelta(delta);
     } else if (delta.type === 'full-reload') {
-      loadAtlas();
+      loadJStruct();
     }
   };
 }
@@ -1266,12 +1266,12 @@ function applyDelta(delta) {
 let cy;
 function renderTopology() {
   const elements = [];
-  atlas.entities.forEach(e => {
+  jstruct.entities.forEach(e => {
     elements.push({
       data: { id: e.fqn, label: e.className, module: e.module, roles: e.roles }
     });
   });
-  atlas.relationships.forEach(r => {
+  jstruct.relationships.forEach(r => {
     elements.push({
       data: { id: `${r.source}->${r.target}`, source: r.source,
               target: r.target, weight: r.weight, type: r.type }
@@ -1342,15 +1342,15 @@ function switchView(view) {
   document.getElementById(view).classList.add('active');
   document.getElementById('btn-' + view).classList.add('active');
 
-  if (view === 'topo') loadAtlas();
+  if (view === 'topo') loadJStruct();
   else if (view === 'matrix') renderMatrix();
   else if (view === 'layers') renderLayers();
   else if (view === 'hot') renderHotspots();
 }
 
 function updateSummary() {
-  const hotspots = atlas.metrics?.hotspots || [];
-  const cycles = atlas.metrics?.cycles || [];
+  const hotspots = jstruct.metrics?.hotspots || [];
+  const cycles = jstruct.metrics?.cycles || [];
   document.getElementById('summary').innerHTML = `
     <div style="margin-top:20px;font-size:13px;">
       <p>🔴 环依赖: ${cycles.length} 处</p>
@@ -1366,7 +1366,7 @@ function renderMatrix() {
   // D3.js A/I 矩阵散点图
   const svg = d3.select('#matrix');
   svg.selectAll('*').remove();
-  const data = atlas.metrics?.martin || [];
+  const data = jstruct.metrics?.martin || [];
   const w = svg.node().clientWidth, h = svg.node().clientHeight;
   const margin = 40;
   const x = d3.scaleLinear().domain([0,1]).range([margin, w-margin]);
@@ -1401,7 +1401,7 @@ function renderLayers() { /* 分层透视图 — Phase 4 实现 */ }
 function renderHotspots() { /* 热力图 — Phase 4 实现 */ }
 
 // 启动
-loadAtlas();
+loadJStruct();
 </script>
 </body>
 </html>
@@ -1415,8 +1415,8 @@ loadAtlas();
 
 ```json
 {
-  "format": "atlas-agent-v1",
-  "atlas_version": "1.0.0",
+  "format": "jstruct-agent-v1",
+  "jstruct_version": "1.0.0",
   "timestamp": "2026-05-29T10:30:00Z",
   "project": "my-project",
   "summary": {
@@ -1457,17 +1457,17 @@ loadAtlas();
 ### 5.2 Hermes Skill 封装
 
 ```python
-# hermes-skill: java-code-atlas
-# 触发条件: cd 到 Java 项目根目录 → 自动检测 config/atlas.yaml
-# 命令: /atlas serve | /atlas scan | /atlas dump
+# hermes-skill: jstruct
+# 触发条件: cd 到 Java 项目根目录 → 自动检测 config/jstruct.yaml
+# 命令: /jstruct serve | /jstruct scan | /jstruct dump
 
-# ~/.hermes/skills/java-code-atlas/SKILL.md 内容：
+# ~/.hermes/skills/jstruct/SKILL.md 内容：
 """
-当用户在 Java 项目根目录时，自动检测 config/atlas.yaml 是否存在。
+当用户在 Java 项目根目录时，自动检测 config/jstruct.yaml 是否存在。
 如果存在，提供以下能力：
-  /atlas serve  → 启动 Web 图谱服务
-  /atlas scan  → 生成一次性报告
-  /atlas dump  → 输出 Agent 消费 JSON
+  /jstruct serve  → 启动 Web 图谱服务
+  /jstruct scan  → 生成一次性报告
+  /jstruct dump  → 输出 Agent 消费 JSON
 
 问题示例：
   "哪些模块需要重构？"       → 查询 pain_modules
@@ -1481,7 +1481,7 @@ loadAtlas();
 ## 附录 A · 完整目录树
 
 ```
-java-code-atlas/
+jstruct/
 ├── .gitignore
 ├── README.md
 ├── DESIGN.md
@@ -1489,11 +1489,11 @@ java-code-atlas/
 ├── requirements.txt
 │
 ├── config/                         # 🔧 所有可配置（一个文件夹）
-│   ├── atlas.yaml.example
+│   ├── jstruct.yaml.example
 │   ├── sources.yaml.example
 │   └── model.yaml.example
 │
-├── atlas.py                        # CLI 入口
+├── jstruct.py                        # CLI 入口
 ├── src/                            # Python 编排
 │   ├── __init__.py
 │   ├── cli.py                      # click: serve/scan/dump/config
@@ -1506,7 +1506,7 @@ java-code-atlas/
 │   │   └── prompts.py              # ARCHITECTURE_PROMPT, DESIGN_PATTERN_PROMPT
 │   ├── web/
 │   │   ├── __init__.py
-│   │   ├── server.py               # AtlasServer (aiohttp)
+│   │   ├── server.py               # JStructServer (aiohttp)
 │   │   ├── watcher.py              # FileWatcher (watchdog)
 │   │   └── websocket.py            # WebSocket 增量推送
 │   └── render/
@@ -1517,7 +1517,7 @@ java-code-atlas/
 │
 ├── java-analyzer/                  # Java 分析器 (Maven 项目)
 │   ├── pom.xml
-│   └── src/main/java/io/github/javacodeatlas/
+│   └── src/main/java/io/github/jstruct/
 │       ├── AnalyzerCli.java        # Picocli CLI 入口
 │       ├── extract/
 │       │   ├── FingerprintExtractor.java
@@ -1527,7 +1527,7 @@ java-code-atlas/
 │       │   ├── GraphAnalyzer.java  # 图构建+SCC+A/I+热点+边界
 │       │   └── MetricsCli.java
 │       ├── model/
-│       │   ├── AtlasDocument.java
+│       │   ├── JStructDocument.java
 │       │   ├── EntityFingerprint.java
 │       │   ├── Relationship.java
 │       │   └── ModuleFingerprint.java
@@ -1595,8 +1595,8 @@ java-code-atlas/
 ```bash
 mvn -f java-analyzer/pom.xml test
 pytest -q
-python atlas.py scan tests/fixtures/spring-layered -o .atlas-test/
-python atlas.py serve --no-browser --port 18765 &  # 后台启动
+python jstruct.py scan tests/fixtures/spring-layered -o .jstruct-test/
+python jstruct.py serve --no-browser --port 18765 &  # 后台启动
 curl -s http://127.0.0.1:18765/api/status | grep '"status":"idle"'
 ```
 

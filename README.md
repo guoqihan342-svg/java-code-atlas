@@ -22,7 +22,7 @@
 
 ```powershell
 # 1. 初始化配置
-python atlas.py config init
+python jstruct.py config init
 # 编辑 config\sources.yaml → root: "D:\你的Java项目"
 
 # 2. 安装依赖
@@ -30,11 +30,11 @@ pip install -r requirements.txt
 
 # 3. 编译 Java 分析器（不用 Maven，javac 直编）
 cd java-analyzer
-javac -cp "%USERPROFILE%\.m2\repository\*" -d target\classes src\main\java\io\github\javacodeatlas\**\*.java
+javac -cp "%USERPROFILE%\.m2\repository\*" -d target\classes src\main\java\io\github\jstruct\**\*.java
 cd ..
 
 # 4. 启动
-python atlas.py serve
+python jstruct.py serve
 
 # 浏览器打开 http://127.0.0.1:8765
 # 修改代码 → 保存 → 图谱自动刷新
@@ -58,7 +58,7 @@ python atlas.py serve
 
 ```
 config/
-├── atlas.yaml       # 主配置（端口/JDK/输出格式）
+├── jstruct.yaml       # 主配置（端口/JDK/输出格式）
 ├── sources.yaml     # 代码源目录（Maven多模块/独立多项目）
 └── model.yaml       # LLM 模型配置（可配任意 OpenAI 兼容 API）
 ```
@@ -86,7 +86,7 @@ config/
 | ✅ JDK 自动检测 | 从 pom.xml / gradle / .java-version 读取 |
 | ✅ Maven 多模块支持 | 自动发现父子模块 |
 | ✅ LLM 可配置 | 支持任意 OpenAI 兼容 API |
-| ✅ atlas serve + Watch | Web 服务 + 文件监听 + 浏览器实时刷新 |
+| ✅ jstruct serve + Watch | Web 服务 + 文件监听 + 浏览器实时刷新 |
 | ✅ 数据外部加载 | HTML <100KB，JSON 独立，不再 50MB 单文件 |
 | ✅ 注解元信息解析 | @SpringBootApplication 等组合注解正确识别 |
 | ✅ JSON schema 版本化 | 数据契约版本号，避免静默失败 |

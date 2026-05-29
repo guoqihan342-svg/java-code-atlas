@@ -17,13 +17,13 @@ class AnalyzerError(RuntimeError):
 
 
 class JavaAnalyzer:
-    """Build and invoke java-code-atlas-analyzer commands."""
+    """Build and invoke jstruct-analyzer commands."""
 
     CURRENT_SCHEMA_VERSION = "1.0.0"
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
-        self.jar_path = Path("java-analyzer/target/java-code-atlas-analyzer-0.2.0.jar")
+        self.jar_path = Path("java-analyzer/target/jstruct-analyzer-0.2.0.jar")
         self.jdk_version = str(config.get("java", {}).get("jdk_version") or self._detect_jdk())
         self.maven_home = str(config.get("java", {}).get("maven_home") or "")
 
@@ -49,15 +49,15 @@ class JavaAnalyzer:
         """Run analyze + metrics and merge the resulting data for web rendering."""
 
         output_dir = Path(self.config["output"]["dir"])
-        raw_path = output_dir / "atlas-raw.json"
-        metrics_path = output_dir / "atlas-metrics.json"
+        raw_path = output_dir / "jstruct-raw.json"
+        metrics_path = output_dir / "jstruct-metrics.json"
         raw = self.analyze(raw_path)
         metrics = self.metrics(raw_path, metrics_path)
-        atlas = dict(raw)
-        atlas["metrics"] = metrics.get("metrics", metrics)
-        atlas_path = output_dir / "atlas.json"
-        atlas_path.write_text(json.dumps(atlas, ensure_ascii=False, indent=2), encoding="utf-8")
-        return atlas
+        jstruct = dict(raw)
+        jstruct["metrics"] = metrics.get("metrics", metrics)
+        jstruct_path = output_dir / "jstruct.json"
+        jstruct_path.write_text(json.dumps(jstruct, ensure_ascii=False, indent=2), encoding="utf-8")
+        return jstruct
 
     def _build_command(self, subcommand: str) -> list[str]:
         java = "java"
@@ -72,7 +72,7 @@ class JavaAnalyzer:
             classpath.extend(str(p) for p in repo.rglob("*.jar"))
         cp_sep = ";" if os.name == "nt" else ":"
         cmd = [java, "-cp", cp_sep.join(classpath),
-               "io.github.javacodeatlas.AnalyzerCli", subcommand]
+               "io.github.jstruct.AnalyzerCli", subcommand]
 
         mvn_home = self.maven_home or os.environ.get("M2_HOME", "")
         if mvn_home:
@@ -181,21 +181,21 @@ class JavaAnalyzer:
         return ""
 
     def _validate_schema(self, data: dict[str, Any]) -> None:
-        version = data.get("atlas", {}).get("version")
+        version = data.get("jstruct", {}).get("version")
         if version != self.CURRENT_SCHEMA_VERSION:
             raise ValueError(f"数据版本不匹配: 期望 {self.CURRENT_SCHEMA_VERSION}, 收到 {version}; 请重建 JAR")
 
 
-def fallback_empty_atlas(config: dict[str, Any], error: str | None = None) -> dict[str, Any]:
-    """Create a valid empty Atlas document for recoverable UI states."""
+def fallback_empty_jstruct(config: dict[str, Any], error: str | None = None) -> dict[str, Any]:
+    """Create a valid empty JStruct document for recoverable UI states."""
 
     now = datetime.now(timezone.utc).isoformat()
-    atlas = {
-        "atlas": {
+    jstruct = {
+        "jstruct": {
             "version": JavaAnalyzer.CURRENT_SCHEMA_VERSION,
             "generated_at": now,
             "generatedAt": now,
-            "project": config.get("project", {}).get("name", "java-code-atlas"),
+            "project": config.get("project", {}).get("name", "jstruct"),
             "totalModules": 0,
             "totalEntities": 0,
             "totalRelationships": 0,
@@ -206,5 +206,5 @@ def fallback_empty_atlas(config: dict[str, Any], error: str | None = None) -> di
         "metrics": {"hotspots": [], "cycles": [], "martin": []},
     }
     if error:
-        atlas["error"] = error
-    return atlas
+        jstruct["error"] = error
+    return jstruct

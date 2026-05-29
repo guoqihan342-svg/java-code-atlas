@@ -14,28 +14,28 @@ class MarkdownRenderer:
     def __init__(self, template_dir: str | Path = "templates"):
         self.env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=False)
 
-    def render(self, atlas: dict[str, Any]) -> str:
-        metrics = atlas.get("metrics", {})
+    def render(self, jstruct: dict[str, Any]) -> str:
+        metrics = jstruct.get("metrics", {})
         hotspots = list(metrics.get("hotspots", []))[:10]
         cycles = metrics.get("cycles", [])
         martin = metrics.get("martin", [])
         recommendations = self._recommendations(cycles, martin, hotspots)
         template = self.env.get_template("report.md.j2")
         return template.render(
-            meta=atlas.get("atlas", {}),
-            modules=atlas.get("modules", []),
-            entities=atlas.get("entities", []),
-            relationships=atlas.get("relationships", []),
+            meta=jstruct.get("jstruct", {}),
+            modules=jstruct.get("modules", []),
+            entities=jstruct.get("entities", []),
+            relationships=jstruct.get("relationships", []),
             hotspots=hotspots,
             cycles=cycles,
             martin=martin,
             recommendations=recommendations,
         )
 
-    def write(self, atlas: dict[str, Any], output_path: str | Path) -> Path:
+    def write(self, jstruct: dict[str, Any], output_path: str | Path) -> Path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(self.render(atlas), encoding="utf-8")
+        path.write_text(self.render(jstruct), encoding="utf-8")
         return path
 
     @staticmethod

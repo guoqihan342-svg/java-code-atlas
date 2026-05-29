@@ -1,4 +1,4 @@
-"""aiohttp web server for Java Code Atlas."""
+"""aiohttp web server for JStruct."""
 
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ from src.render.mermaid import MermaidRenderer
 from src.web.websocket import WebSocketManager
 
 
-class AtlasServer:
-    """Serve the interactive Atlas UI and JSON APIs."""
+class JStructServer:
+    """Serve the interactive JStruct UI and JSON APIs."""
 
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.app = web.Application()
-        self.atlas_data: dict[str, Any] | None = None
+        self.jstruct_data: dict[str, Any] | None = None
         self.status = "idle"
         self.error: str | None = None
         self._scan_lock = asyncio.Lock()
@@ -34,8 +34,8 @@ class AtlasServer:
     def _setup_routes(self) -> None:
         self.app.router.add_get("/", self._index)
         self.app.router.add_static("/static/", Path("templates"), name="static")
-        self.app.router.add_get("/api/atlas", self._atlas_json)
-        self.app.router.add_get("/api/atlas.json", self._atlas_json)
+        self.app.router.add_get("/api/jstruct", self._jstruct_json)
+        self.app.router.add_get("/api/jstruct.json", self._jstruct_json)
         self.app.router.add_get("/api/status", self._status)
         self.app.router.add_post("/api/reload", self._reload)
         self.app.router.add_get("/ws", self._websocket)
@@ -44,10 +44,10 @@ class AtlasServer:
         html = HtmlRenderer().render(self.config)
         return web.Response(text=html, content_type="text/html")
 
-    async def _atlas_json(self, request: web.Request) -> web.Response:
-        if not self.atlas_data:
+    async def _jstruct_json(self, request: web.Request) -> web.Response:
+        if not self.jstruct_data:
             raise web.HTTPNotFound(text="图谱尚未生成")
-        return web.json_response(self.atlas_data)
+        return web.json_response(self.jstruct_data)
 
     async def _status(self, request: web.Request) -> web.Response:
         return web.json_response({"status": self.status, "error": self.error})
@@ -83,7 +83,7 @@ class AtlasServer:
         await site.start()
 
         url = f"http://{host}:{port}"
-        print(f"\nJava Code Atlas -> {url}")
+        print(f"\nJStruct -> {url}")
         print(f"监控目录: {self._watch_description()}")
         print(f"Watch 模式: {'启用' if self.config['serve'].get('watch') else '关闭'}\n")
 
@@ -110,16 +110,16 @@ class AtlasServer:
                 await self.ws.broadcast({"type": "status", "status": "scanning"})
             try:
                 analyzer = JavaAnalyzer(self.config)
-                atlas = await asyncio.to_thread(analyzer.scan)
-                self.atlas_data = atlas
-                self._write_reports(atlas)
+                jstruct = await asyncio.to_thread(analyzer.scan)
+                self.jstruct_data = jstruct
+                self._write_reports(jstruct)
                 self.status = "done"
                 if broadcast:
                     await self.ws.broadcast(
                         {
                             "type": "full-reload",
                             "changed_path": changed_path,
-                            "atlas": atlas.get("atlas", {}),
+                            "jstruct": jstruct.get("jstruct", {}),
                         }
                     )
             except Exception as exc:
@@ -127,20 +127,20 @@ class AtlasServer:
                 self.error = str(exc)
                 if broadcast:
                     await self.ws.broadcast({"type": "error", "error": self.error})
-                if self.atlas_data is None:
+                if self.jstruct_data is None:
                     raise
 
-    def _write_reports(self, atlas: dict[str, Any]) -> None:
+    def _write_reports(self, jstruct: dict[str, Any]) -> None:
         output_dir = Path(self.config["output"]["dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
         formats = set(self.config.get("output", {}).get("formats", []))
-        (output_dir / "atlas.json").write_text(json.dumps(atlas, ensure_ascii=False, indent=2), encoding="utf-8")
+        (output_dir / "jstruct.json").write_text(json.dumps(jstruct, ensure_ascii=False, indent=2), encoding="utf-8")
         if "html" in formats:
             HtmlRenderer().write(output_dir / "graph.html", self.config)
         if "md" in formats:
-            MarkdownRenderer().write(atlas, output_dir / "report.md")
+            MarkdownRenderer().write(jstruct, output_dir / "report.md")
         if "mmd" in formats:
-            MermaidRenderer().write(atlas, output_dir / "mermaid.mmd")
+            MermaidRenderer().write(jstruct, output_dir / "mermaid.mmd")
 
     def _watch_description(self) -> str:
         if self.config["serve"].get("watch_dirs"):

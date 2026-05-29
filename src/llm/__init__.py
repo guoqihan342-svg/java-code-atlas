@@ -1,1 +1,1 @@
-"""LLM integration for Java Code Atlas."""
+"""LLM integration for JStruct."""
