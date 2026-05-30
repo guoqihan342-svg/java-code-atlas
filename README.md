@@ -36,6 +36,11 @@ python atlas.py serve
 
 ### Windows (PowerShell)
 
+> **提示**：如果遇到 "running scripts is disabled" 错误，请在 PowerShell 中执行：
+> ```powershell
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+> ```
+
 ```powershell
 # 1. 创建配置
 New-Item -ItemType Directory -Force config

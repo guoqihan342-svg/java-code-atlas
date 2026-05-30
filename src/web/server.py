@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
 import webbrowser
 from pathlib import Path
 from typing import Any
@@ -88,7 +90,10 @@ class AtlasServer:
         print(f"Watch 模式: {'启用' if self.config['serve'].get('watch') else '关闭'}\n")
 
         if self.config["serve"].get("open_browser", True):
-            webbrowser.open(url)
+            if os.environ.get("WSL_DISTRO_NAME"):
+                subprocess.run(["cmd.exe", "/c", "start", url])
+            else:
+                webbrowser.open(url)
 
         if self.config["serve"].get("watch", True):
             from .watcher import FileWatcher

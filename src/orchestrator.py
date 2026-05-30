@@ -61,7 +61,7 @@ class JavaAnalyzer:
 
     def _build_command(self, subcommand: str) -> list[str]:
         java = "java"
-        java_home = os.environ.get(f"JAVA_{self.jdk_version}_HOME", "")
+        java_home = os.environ.get(f"JAVA_{self.jdk_version}_HOME", "") or os.environ.get("JAVA_HOME", "") or os.environ.get("JDK_HOME", "")
         if java_home:
             java = str(Path(java_home) / "bin" / "java")
 
@@ -70,9 +70,18 @@ class JavaAnalyzer:
         repo = Path.home() / ".m2" / "repository"
         if repo.exists():
             classpath.extend(str(p) for p in repo.rglob("*.jar"))
-        cp_sep = ";" if os.name == "nt" else ":"
-        cmd = [java, "-cp", cp_sep.join(classpath),
-               "io.github.javacodeatlas.AnalyzerCli", subcommand]
+
+        if os.name == "nt":
+            import tempfile
+            cp_file = Path(tempfile.mkstemp(suffix=".cp")[1])
+            cp_file.write_text(";".join(classpath))
+            self._cp_file = cp_file  # stored for cleanup in _run()
+            cmd = [java, "-cp", f"@{cp_file}",
+                   "io.github.javacodeatlas.AnalyzerCli", subcommand]
+        else:
+            self._cp_file = None
+            cmd = [java, "-cp", ":".join(classpath),
+                   "io.github.javacodeatlas.AnalyzerCli", subcommand]
 
         mvn_home = self.maven_home or os.environ.get("M2_HOME", "")
         if mvn_home:
@@ -97,29 +106,34 @@ class JavaAnalyzer:
         timeout = None if timeout_sec == 0 else int(timeout_sec)
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-        except FileNotFoundError as exc:
-            raise AnalyzerError(f"命令不存在: {cmd[0]}") from exc
-        except subprocess.TimeoutExpired as exc:
-            if output_path.exists():
-                try:
-                    with output_path.open("r", encoding="utf-8") as handle:
-                        data = json.load(handle)
-                    data["_warning"] = "分析超时，仅返回部分结果"
-                    return data
-                except (json.JSONDecodeError, OSError):
-                    raise AnalyzerError("分析超时且输出文件不完整") from exc
-            raise AnalyzerError("分析超时且未生成任何输出") from exc
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+            except FileNotFoundError as exc:
+                raise AnalyzerError(f"命令不存在: {cmd[0]}") from exc
+            except subprocess.TimeoutExpired as exc:
+                if output_path.exists():
+                    try:
+                        with output_path.open("r", encoding="utf-8") as handle:
+                            data = json.load(handle)
+                        data["_warning"] = "分析超时，仅返回部分结果"
+                        return data
+                    except (json.JSONDecodeError, OSError):
+                        raise AnalyzerError("分析超时且输出文件不完整") from exc
+                raise AnalyzerError("分析超时且未生成任何输出") from exc
 
-        if result.returncode != 0:
-            raise AnalyzerError(f"Java分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
-        if not output_path.exists():
-            raise AnalyzerError(f"Java分析器未生成输出文件: {output_path}")
+            if result.returncode != 0:
+                raise AnalyzerError(f"Java分析器失败:\n{result.stderr.strip() or result.stdout.strip()}")
+            if not output_path.exists():
+                raise AnalyzerError(f"Java分析器未生成输出文件: {output_path}")
 
-        with output_path.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        self._validate_schema(data)
-        return data
+            with output_path.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            self._validate_schema(data)
+            return data
+        finally:
+            if getattr(self, "_cp_file", None):
+                self._cp_file.unlink(missing_ok=True)
+                self._cp_file = None
 
     def _build_jar(self) -> None:
         """Build analyzer JAR with Maven when it is missing."""
