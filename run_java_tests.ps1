@@ -47,7 +47,7 @@ $MAIN_SOURCES = Get-ChildItem -Path (Join-Path $ANALYZER_DIR "src\main\java") -R
 $MAIN_SOURCEFILE = "$env:TEMP\javac-main-sources.txt"
 $MAIN_SOURCES | Out-File -Encoding ASCII $MAIN_SOURCEFILE
 Write-Host "Compiling $($MAIN_SOURCES.Count) main sources..."
-& javac -cp $CP -d $MAIN_CLASSES @"$MAIN_SOURCEFILE"
+& javac -cp $CP -d $MAIN_CLASSES "@$MAIN_SOURCEFILE"
 if ($LASTEXITCODE -ne 0) { throw "javac main compilation failed" }
 
 # Compile test sources (use @argfile to avoid Windows 8191 char limit)
@@ -56,7 +56,7 @@ $TEST_SOURCEFILE = "$env:TEMP\javac-test-sources.txt"
 $TEST_SOURCES | Out-File -Encoding ASCII $TEST_SOURCEFILE
 $TEST_CP = "$MAIN_CLASSES;$CP"
 Write-Host "Compiling $($TEST_SOURCES.Count) test sources..."
-& javac -cp $TEST_CP -d $TEST_CLASSES @"$TEST_SOURCEFILE"
+& javac -cp $TEST_CP -d $TEST_CLASSES "@$TEST_SOURCEFILE"
 if ($LASTEXITCODE -ne 0) { throw "javac test compilation failed" }
 
 # Run tests

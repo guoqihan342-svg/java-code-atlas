@@ -72,8 +72,11 @@ class JavaAnalyzer:
             classpath.extend(str(p) for p in repo.rglob("*.jar"))
 
         if os.name == "nt":
+            import os as _os
             import tempfile
-            cp_file = Path(tempfile.mkstemp(suffix=".cp")[1])
+            fd, path = tempfile.mkstemp(suffix=".cp")
+            _os.close(fd)  # Windows requires closing fd before unlink
+            cp_file = Path(path)
             cp_file.write_text(";".join(classpath))
             self._cp_file = cp_file  # stored for cleanup in _run()
             cmd = [java, "-cp", f"@{cp_file}",

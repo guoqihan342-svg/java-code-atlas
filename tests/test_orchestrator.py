@@ -50,7 +50,7 @@ def test_analyze_subprocess_call_constructed_correctly(monkeypatch: pytest.Monke
     assert calls
     cmd = calls[0]
     assert cmd[-2:] == ["--output", str(output_path)]
-    assert cmd[0] == "java"
+    assert Path(cmd[0]).name in ("java", "java.exe")
     assert "analyze" in cmd
 
 
